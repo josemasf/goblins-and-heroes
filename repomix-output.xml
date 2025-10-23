@@ -43,7 +43,9 @@ The content is organized as follows:
 .editorconfig
 .gitignore
 AGENTS.md
-docs/update-coins.md
+DESIGN_RELIQUIAS.md
+docs/spritesheet-guide.md
+docs/update-coins-2.md
 docs/update-enemies.md
 docs/update-game-name.md
 docs/update-player.md
@@ -53,35 +55,28 @@ JUEGO_PLATAFORMAS.md
 LICENSE
 log.js
 package.json
-public/assets/bg.png
-public/assets/boss_troll_sheet.png
-public/assets/coin_sheet.png
-public/assets/goblin_green_sheet.png
-public/assets/goblin_red_sheet.png
-public/assets/hero_jump_sheet.png
-public/assets/hero_speed_sheet.png
-public/assets/hero_tank_sheet.png
-public/assets/intro.png
-public/assets/logo.png
-public/assets/player.png
-public/assets/pu_inv_sheet.png
-public/assets/pu_life_sheet.png
-public/assets/pu_speed_sheet.png
-public/assets/star.png
-public/favicon.png
+pnpm-workspace.yaml
 public/style.css
 README.md
-screenshot.png
 src/App.vue
 src/game/audio/Sfx.ts
+src/game/boss/BossController.ts
+src/game/core/Hero.ts
+src/game/doors/DoorController.ts
 src/game/EventBus.ts
 src/game/main.ts
 src/game/scenes/Boot.ts
 src/game/scenes/CharacterSelect.ts
 src/game/scenes/Game.ts
 src/game/scenes/GameOver.ts
+src/game/scenes/LevelSelectDev.ts
 src/game/scenes/MainMenu.ts
 src/game/scenes/Preloader.ts
+src/game/spawners/CoinSpawner.ts
+src/game/spawners/EnemySpawner.ts
+src/game/spawners/PowerUpSpawner.ts
+src/game/ui/Hud.ts
+src/game/utils/PlatformUtils.ts
 src/main.ts
 src/PhaserGame.vue
 src/vite-env.d.ts
@@ -107,6 +102,41 @@ end_of_line = crlf
 charset = utf-8
 trim_trailing_whitespace = false
 insert_final_newline = false
+</file>
+
+<file path=".gitignore">
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+.DS_Store
+dist
+dist-ssr
+coverage
+*.local
+
+/cypress/videos/
+/cypress/screenshots/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+*.tsbuildinfo
+
+.playwright-mcp
 </file>
 
 <file path="AGENTS.md">
@@ -152,191 +182,381 @@ insert_final_newline = false
  - Recommended Node: 18 or newer (`"engines": { "node": ">=18" }`).
 </file>
 
-<file path="docs/update-coins.md">
-Genial. Vamos a subir de nivel **monedas** y **power-ups** con arte animado y un par de efectos de UX sin tocar tu gameplay.
+<file path="DESIGN_RELIQUIAS.md">
+# Diseño: Reliquias, Equipamiento y Progresión
 
-## 🎨 Assets nuevos (spritesheets)
+## Objetivo
+- Añadir exploración con recompensa, progresión del héroe y profundidad estratégica.
+- Integración modular y por fases, compatible con la arquitectura Phaser + Vue actual.
 
-* Moneda girando (24×24, 16 frames): [coin_sheet.png](sandbox:/mnt/data/coin_sheet.png)
-* Vida (pulso verde, 24×24, 16 frames): [pu_life_sheet.png](sandbox:/mnt/data/pu_life_sheet.png)
-* Velocidad (pulso azul, 24×24, 16 frames): [pu_speed_sheet.png](sandbox:/mnt/data/pu_speed_sheet.png)
-* Invencibilidad (pulso dorado, 24×24, 16 frames): [pu_inv_sheet.png](sandbox:/mnt/data/pu_inv_sheet.png)
+## Modelo de Datos
+- `player.relics: Relic[]` — reliquias obtenidas durante la partida (persisten entre niveles).
+- `player.equipment: EquipmentSlots` — equipo visible (casco, armadura, arma, escudo).
+- `player.stats: Stats` — estadísticas derivadas (velocidad, salto, defensa, etc.).
 
-**Layout** en todas: 8×2 celdas, frames 0–15. Están pensadas para reemplazar tus círculos actuales creados con `Graphics` en el `Preloader`. 
+Tipos sugeridos (TypeScript, referencia):
 
----
+```
+export type Rarity = 'Común' | 'Raro' | 'Épico' | 'Legendario';
 
-# Integración (minimalista y compatible)
+export interface Relic {
+  id: string;           // p.ej. 'amulet_vigor'
+  name: string;         // 'Amuleto de Vigor'
+  rarity: Rarity;
+  type: 'passive' | 'active';
+  iconKey?: string;     // key en atlas/spritesheet si aplica
+  cooldown?: number;    // ms (solo active)
+  duration?: number;    // ms (si aplica efecto temporal)
+  lastUsedAt?: number;  // timestamp ms (gestión cooldown)
+  stacks?: number;      // acumulaciones si corresponde
+  state?: any;          // almacenamiento ligero para lógica concreta
+}
 
-## 1) Copia los PNG
+export interface EquipmentSlots {
+  head?: string;   // id casco
+  armor?: string;  // id armadura
+  weapon?: string; // id arma
+  shield?: string; // id escudo
+}
 
-A `public/assets/`. Tu loader ya hace `this.load.setPath('assets')`. 
-
-## 2) `Preloader.ts`
-
-### a) Deja de generar las monedas/power-ups procedurales
-
-Comenta el contenido de `createCoinSprite()` y `createPowerUpSprites()` para que no creen texturas con `generateTexture`. (Mantén el resto del preload). 
-
-### b) Carga las hojas nuevas en `preload()`
-
-```ts
-this.load.spritesheet('coin_sheet',    'assets/coin_sheet.png',    { frameWidth: 24, frameHeight: 24 });
-this.load.spritesheet('pu_life_sheet', 'assets/pu_life_sheet.png', { frameWidth: 24, frameHeight: 24 });
-this.load.spritesheet('pu_speed_sheet','assets/pu_speed_sheet.png',{ frameWidth: 24, frameHeight: 24 });
-this.load.spritesheet('pu_inv_sheet',  'assets/pu_inv_sheet.png',  { frameWidth: 24, frameHeight: 24 });
+export interface Stats {
+  speedX: number;
+  jumpV: number;
+  maxLives: number;
+  defensePct: number; // 0..1
+}
 ```
 
-### c) Define animaciones en `create()`
+## Serialización y Persistencia
+- Entre escenas: usar `this.registry` (Phaser) para compartir `player.relics`, `player.equipment`, `player.stats`.
+  - Claves recomendadas: `relics`, `equipment`, `stats`.
+  - Guardar como objetos directos (Phaser Registry soporta referencias), o como JSON si se prefiere `JSON.stringify`/`parse`.
+- Entre niveles (ya implementado path/level): asegurar que en `Game.create()` se lea de `registry` y se apliquen efectos.
+- Entre partidas (meta‑progresión opcional): `localStorage` con versión: `gnh_meta_v1`.
 
-```ts
-// Moneda: giro continuo
-this.anims.create({
-  key: 'coin_spin',
-  frames: this.anims.generateFrameNumbers('coin_sheet', { start: 0, end: 15 }),
-  frameRate: 12,
-  repeat: -1
+## Hooks de Integración
+- `onSceneCreate(Game)`
+  - Leer `relics` y recalcular `player.stats` (aplicar pasivas).
+  - Configurar inputs extra (disparo, sigilo) si hay reliquias activas.
+- `onCollectRelic(relic: Relic)`
+  - Añadir a `player.relics`, aplicar efecto inmediato si procede y mostrar UI (toast + icono HUD).
+- `onUpdate(time, delta)`
+  - Gestionar cooldowns de reliquias activas (HUD con barra/contador).
+- Eventos del juego como disparadores:
+  - `onCoinCollected`, `onEnemyKilled`, `onDamaged`, `onPowerUpTaken`, `onJump`.
+  - Permiten reliquias que reaccionen (bonus de velocidad, negación de golpe, curación, etc.).
+
+## Reliquias de Ejemplo (MVP)
+1) Amuleto de Vigor (Común, passive)
+- Efecto: +1 salto extra.
+- Lógica: contador `extraJumpCharges = 1` que se resetea al tocar suelo; en `update()`, si salto y `!touching.down` y `charges>0`, permitir salto y `charges--`.
+- HUD: icono pasivo.
+
+2) Cráneo Rúnico (Raro, active)
+- Efecto: ataque mágico cargado.
+- Input: mantener `J` para cargar (hasta 1.2s), soltar para disparar proyectil; daño/velocidad escalan con carga.
+- Cooldown: 6s desde el disparo.
+- HUD: icono con cooldown.
+
+3) Gema de la Sombra (Épico, active)
+- Efecto: invisibilidad 5s (ignora colisiones con enemigos, opacidad 0.5, no invulnerable a caídas).
+- Cooldown: 12s.
+- HUD: temporizador de duración y cooldown.
+
+4) Corona del Rey Goblin (Legendario, active)
+- Efecto: goblins neutrales 8s (no atacan; desactivar overlaps de daño o cambiar grupo temporalmente).
+- Cooldown: 30s.
+- HUD: icono con barra de duración.
+
+## Sistema de Armas y Armaduras
+- `equipment.weapon` cambia animaciones y ataques (espada/ballesta/lanza).
+- `equipment.head/armor/shield` ajustan defensa y sprite del héroe (capas).
+- Hook: al equipar, actualizar grupo de sprites (capa casco/torso/brazo/arma) y `stats`.
+
+## HUD / UI
+- Overlay de reliquias: fila de iconos con rareza (marco color) y estado (activo/cooldown).
+- Inventario simple (Fase 1): lista vertical con tooltip.
+- Indicadores en juego: texto flotante al recoger + sonido.
+
+## Enemigos Temáticos (resumen técnico)
+- `goblin_guard`: más vida/daño, anclado a un cofre; al morir, desbloquea cofre.
+- `goblin_shaman`: AI con proyectiles y sumón; prioridad de objetivos.
+- `goblin_elite`: con equipo al azar (drop de slot al morir).
+- `hatchery` (nido): spawnea minions con límite y cooldown.
+
+## Fases de Implementación
+Fase 1 (reliquias funcionales)
+- [ ] Añadir entidad Cofre con tabla de loot (Común/Raro/Épico/Legendario).
+- [ ] Guardar `player.relics` en `registry` y aplicarlas al crear escena.
+- [ ] Implementar Amuleto de Vigor, Cráneo Rúnico, Gema de la Sombra, Corona del Rey Goblin.
+- [ ] HUD básico de reliquias (icono + cooldown/duración).
+
+Fase 2 (equipamiento visible)
+- [ ] Dividir sprite del héroe en capas (cabeza/torso/brazos/casco/arma/escudo).
+- [ ] Implementar 3 armas iniciales (espada, ballesta, lanza) y sus animaciones.
+
+Fase 3 (enemigos y secretos)
+- [ ] Nuevos goblins (guardia, chamán, élite) + nido de crías.
+- [ ] Cofres protegidos; llaves y puertas selladas; salas secretas.
+
+## Persistencia y Limpieza
+- En `Game.create()`:
+  - `const relics = this.registry.get('relics') as Relic[] || []`.
+  - Aplicar pasivas y configurar inputs.
+- Al cambiar de nivel (puertas): mantener `relics` en `registry`.
+- Al volver al selector: resetear progreso (opcional), conservar meta‑progresión en `localStorage`.
+
+## Consideraciones
+- Evitar efectos que bloqueen input; usar `JustDown`/`JustUp` para activos.
+- Priorizar rendimiento: proyectiles y efectos reutilizando grupos.
+- Balancear números con constantes (`RELICS_CONFIG`) y facilitar tuning.
+
+```
+export const RELICS_CONFIG = {
+  skull_rune: { cooldown: 6000, maxChargeMs: 1200 },
+  shadow_gem: { cooldown: 12000, duration: 5000 },
+  goblin_crown: { cooldown: 30000, duration: 8000 },
+};
+```
+
+## Próximos Pasos Recomendados
+- Implementar Fase 1 (cofres + 4 reliquias) con HUD básico.
+- Añadir sonidos/partículas específicos por reliquia.
+- Guardar/leer `relics` y `equipment` en `registry` y probar paso entre niveles.
+</file>
+
+<file path="docs/spritesheet-guide.md">
+# Guía de Spritesheets para el Juego
+
+## 📐 Dimensiones requeridas
+
+### Formato ideal para pixel art (24×24 por frame)
+
+#### Monedas
+- **Archivo**: `coin_sheet.png`
+- **Dimensiones totales**: 192×48 píxeles (o 384×96 para doble resolución)
+- **Grid**: 8 frames horizontales × 1 fila
+- **Frame size**: 24×24 píxeles (o 48×48)
+- **Total frames**: 8 frames para animación de giro
+
+#### Power-ups (vida, velocidad, invencibilidad)
+- **Archivos**: `pu_life_sheet.png`, `pu_speed_sheet.png`, `pu_inv_sheet.png`
+- **Dimensiones totales**: 192×48 píxeles (o 384×96)
+- **Grid**: 8 frames horizontales × 1 fila
+- **Frame size**: 24×24 píxeles (o 48×48)
+- **Total frames**: 8 frames para animación idle/pulso
+
+## 🛠️ Cómo crear los spritesheets
+
+### Opción 1: Piskel (Recomendado - Gratis, Online)
+1. Ve a https://www.piskelapp.com/
+2. Create Sprite → Set frame size: 24×24
+3. Dibuja tu sprite en cada frame
+4. Export → Download PNG (sprite sheet)
+5. Asegúrate de exportar como 1 fila × 8 columnas
+
+### Opción 2: Aseprite (De pago, profesional)
+1. New Sprite → 24×24 pixels
+2. Crea 8 frames
+3. File → Export Sprite Sheet
+4. Layout: Horizontal strip (1 row)
+5. Export
+
+### Opción 3: Redimensionar existentes con ImageMagick
+```powershell
+# Instalar: https://imagemagick.org/
+cd public/assets
+
+# Redimensionar manteniendo pixel art (sin blur)
+magick coin_sheet.png -sample 192x48! coin_sheet_new.png
+magick pu_life_sheet.png -sample 192x48! pu_life_new.png
+magick pu_speed_sheet.png -sample 192x48! pu_speed_new.png
+magick pu_inv_sheet.png -sample 192x48! pu_inv_new.png
+
+# Reemplazar archivos originales
+mv coin_sheet_new.png coin_sheet.png
+mv pu_life_new.png pu_life_sheet.png
+mv pu_speed_new.png pu_speed_sheet.png
+mv pu_inv_new.png pu_inv_sheet.png
+```
+
+## 📝 Actualizar código después de cambiar imágenes
+
+Si cambias las imágenes a 192×48 (8 frames de 24×24), actualiza `Preloader.ts`:
+
+```typescript
+// En preload():
+this.load.spritesheet('coin_sheet', 'coin_sheet.png', { 
+    frameWidth: 24, 
+    frameHeight: 24 
+});
+this.load.spritesheet('pu_life_sheet', 'pu_life_sheet.png', { 
+    frameWidth: 24, 
+    frameHeight: 24 
+});
+this.load.spritesheet('pu_speed_sheet', 'pu_speed_sheet.png', { 
+    frameWidth: 24, 
+    frameHeight: 24 
+});
+this.load.spritesheet('pu_inv_sheet', 'pu_inv_sheet.png', { 
+    frameWidth: 24, 
+    frameHeight: 24 
 });
 
-// Power-ups: pulso suave
-const puAnims = [
-  ['pu_life_idle',  'pu_life_sheet'],
-  ['pu_speed_idle', 'pu_speed_sheet'],
-  ['pu_inv_idle',   'pu_inv_sheet'],
-] as const;
-
-for (const [key, sheet] of puAnims) {
-  this.anims.create({
-    key,
-    frames: this.anims.generateFrameNumbers(sheet, { start: 0, end: 15 }),
-    frameRate: 10,
-    repeat: -1
-  });
-}
+// En create(), las animaciones usarán 0-7 (8 frames) en lugar de 0-15:
+this.anims.create({ 
+    key: 'coin_spin', 
+    frames: this.anims.generateFrameNumbers('coin_sheet', { start: 0, end: 7 }), 
+    frameRate: 14, 
+    repeat: -1 
+});
 ```
 
-> Dejamos intactas tus cargas de `projectile`, `door`, etc. y las otras animaciones que ya definiste. 
+Y en `Game.ts`, puedes **ELIMINAR** el `setScale(0.125)` porque ya estarán al tamaño correcto.
+
+## ✅ Checklist
+
+- [ ] Spritesheets tienen exactamente 8 frames cada uno
+- [ ] Cada frame es 24×24 píxeles (o 48×48 para 2x)
+- [ ] Formato PNG con transparencia
+- [ ] Sin espaciado entre frames
+- [ ] Organizados en 1 fila horizontal
+- [ ] Nombres de archivo coinciden exactamente: `coin_sheet.png`, `pu_life_sheet.png`, etc.
+</file>
+
+<file path="docs/update-coins-2.md">
+Vale: si las monedas y los power-ups “no se ven bien”, el problema suele ser **filtro bilineal, sub-píxeles y/o escalado por CSS**. Te dejo un **plan de ejecución** brutalmente concreto para que en Phaser se vean **nítidos, pixel perfect y animados**.
 
 ---
 
-## 3) `Game.ts` — Monedas
+# Plan de acción (aplícalo tal cual)
 
-Tu `createCoins()` ahora crea `this.coins.create(..., 'coin')` y ya tiene partículas + score + HUD en `collectCoin()`. Cambiamos a hoja + anim: 
+## 1) Phaser config: pixel art sin suavizado
+
+En `src/game/main.ts` ya usas `pixelArt: true`. Añade `render.antialias = false` para forzar el “nearest” del canvas y evitar blur. 
 
 ```ts
-createCoins() {
-  this.coins = this.physics.add.group();
-  const choice = this.getPathChoice();
-  // ... tu matriz de posiciones se queda igual
+const config: Phaser.Types.Core.GameConfig = {
+  // ...
+  pixelArt: true,
+  render: { antialias: false }, // <— añade esto
+  physics: { /* ... */ },
+  scene: [/* ... */]
+};
+```
 
-  coins.forEach(pos => {
-    const coin = this.coins.create(pos.x, pos.y, 'coin_sheet', 0) as Phaser.Physics.Arcade.Sprite;
-    coin.setBounce(0.4);
-    coin.setCollideWorldBounds(true);
-    coin.play('coin_spin');
+## 2) Canvas CSS: que el navegador no borre el pixel
 
-    // hitbox compacta
-    coin.body.setSize(16, 16).setOffset(4, 4);
+Ajusta `public/style.css` para el lienzo (canvas) dentro de `#game-container`. Esto evita el suavizado si el canvas se escala por CSS. 
 
-    // bob vertical sutil
-    this.tweens.add({
-      targets: coin, y: coin.y - 4, yoyo: true, repeat: -1, duration: 800, ease: 'Sine.inOut'
-    });
-  });
+```css
+#game-container canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges; /* fallback */
 }
 ```
 
-Tu `collectCoin()` ya hace partículas y SFX; lo dejamos, pero con sprites animados se ve más “jugoso” sin tocar tu lógica: suma +10, HUD y victoria cuando quedan 0. 
+## 3) Cámara: píxel redondeado
+
+En `Game.ts` ya activaste `roundPixels` en la cámara. Mantén eso (clave para que los tweens no metan sub-píxeles). 
+
+```ts
+this.camera = this.cameras.main;
+this.camera.roundPixels = true;
+```
+
+## 4) Asegura filtro NEAREST en las texturas cargadas
+
+En `Preloader.ts`, tras crear animaciones (en `create()`), fuerza el filtro por textura (Phaser 3.60+). 
+
+```ts
+['coin_sheet','pu_life_sheet','pu_speed_sheet','pu_inv_sheet'].forEach(k => {
+  this.textures.get(k).setFilter(Phaser.Textures.FilterMode.NEAREST);
+});
+```
+
+## 5) Animaciones: ya definidas, mantenlas
+
+Tienes las anims correctas (`coin_spin` y `pu_*_idle`). Déjalas igual (o 12–14 fps si quieres suavidad). 
+
+## 6) Instanciación correcta (Sprite + hitbox + bob)
+
+Asegúrate de que **NO** usas `Image` ni `setDisplaySize` con estos assets (eso reescala y emborrona). Usa `Sprite`, `play(anim)`, hitbox compacto y tween que no meta escalas fraccionarias.
+
+### Monedas — `Game.ts` (en `createCoins()`)
+
+```ts
+const coin = this.coins.create(x, y, 'coin_sheet', 0) as Phaser.Physics.Arcade.Sprite;
+coin.play('coin_spin');
+coin.body.setSize(16, 16).setOffset(4, 4); // hitbox centrada
+this.tweens.add({
+  targets: coin,
+  y: coin.y - 4,
+  duration: 800,
+  yoyo: true,
+  repeat: -1,
+  ease: 'Sine.inOut'
+});
+```
+
+> Nada de `setDisplaySize`. Si quieres “hacerlas grandes”, usa `coin.setScale(2)` (enteros, siempre). 
+
+### Power-ups — `Game.ts` (en `createPowerUps()`)
+
+```ts
+const pu = this.powerUps.create(x, y, 'pu_speed_sheet', 0) as Phaser.Physics.Arcade.Sprite;
+pu.play('pu_speed_idle');
+pu.setBlendMode(Phaser.BlendModes.ADD);    // brillo sin blur
+pu.body.setSize(16, 16).setOffset(4, 4);
+this.tweens.add({
+  targets: pu,
+  y: pu.y - 4,
+  duration: 900,
+  yoyo: true,
+  repeat: -1,
+  ease: 'Sine.inOut'
+});
+```
+
+> Evita `setDisplaySize`. `setScale(2)` si necesitas, pero **enteros**. Y con `roundPixels` activo no habrá “bailes” sub-píxel. 
+
+## 7) Carga de hojas: OK como spritesheet 24×24
+
+Tu `Preloader.ts` ya carga 24×24 y crea anims. No generes versiones procedurales de monedas/power-ups (ya están como no-op). 
+
+```ts
+this.load.spritesheet('coin_sheet','coin_sheet.png',{ frameWidth:24, frameHeight:24 });
+this.load.spritesheet('pu_life_sheet','pu_life_sheet.png',{ frameWidth:24, frameHeight:24 });
+this.load.spritesheet('pu_speed_sheet','pu_speed_sheet.png',{ frameWidth:24, frameHeight:24 });
+this.load.spritesheet('pu_inv_sheet','pu_inv_sheet.png',{ frameWidth:24, frameHeight:24 });
+// ...
+// Animaciones (ya en tu repo):
+// 'coin_spin' y 'pu_*_idle'
+```
 
 ---
 
-## 4) `Game.ts` — Power-ups
+# Checklist de verificación (2 minutos)
 
-Hoy creas `pu_life`, `pu_speed`, `pu_inv` como texturas planas y guardas un `ptype` para el efecto (vidas/velocidad/inv). Vamos a instanciarlos desde las hojas y animar el idle, con bob y glow ADD. 
-
-```ts
-createPowerUps() {
-  this.powerUps = this.physics.add.group();
-
-  const items = [
-    { x: 500, y: 520, key: 'pu_speed_sheet', anim: 'pu_speed_idle', type: 'speed' },
-    { x: 850, y: 370, key: 'pu_inv_sheet',   anim: 'pu_inv_idle',   type: 'inv'   },
-    { x: 150, y: 120, key: 'pu_life_sheet',  anim: 'pu_life_idle',  type: 'life'  }
-  ];
-
-  items.forEach(i => {
-    const pu = this.powerUps.create(i.x, i.y, i.key, 0) as Phaser.Physics.Arcade.Sprite;
-    pu.setBounce(0.2);
-    pu.setCollideWorldBounds(true);
-    pu.setData('ptype', i.type);
-    pu.play(i.anim);
-    pu.setBlendMode(Phaser.BlendModes.ADD);
-    pu.body.setSize(16, 16).setOffset(4, 4);
-    this.tweens.add({ targets: pu, y: pu.y - 4, yoyo: true, repeat: -1, duration: 900, ease: 'Sine.inOut' });
-  });
-}
-```
-
-Tu `collectPowerUp()` ya implementa los efectos correctamente (vidas++, velocidad temporal, invencibilidad temporal con `tint`). Añadimos un toque visual sin cambiar la mecánica:
-
-```ts
-collectPowerUp(_player: any, pu: any) {
-  const type = pu.getData('ptype');
-  pu.disableBody(true, true);
-  Sfx.powerUp(this);
-
-  // mini destello donde estaba el power-up
-  const flash = this.add.rectangle(pu.x, pu.y, 10, 10, 0xffffff, 0.9).setDepth(999);
-  this.tweens.add({ targets: flash, scaleX: 6, scaleY: 6, alpha: 0, duration: 220, onComplete: () => flash.destroy() });
-
-  switch (type) {
-    case 'life':
-      this.lives += 1;
-      this.livesText.setText('Vidas: ' + this.lives);
-      this.floatText(pu.x, pu.y, '+1 Vida', '#2ecc71'); // ya existía
-      break;
-    case 'speed':
-      this.floatText(pu.x, pu.y, 'Velocidad +', '#3498db');
-      this.speedX = 450;
-      this.jumpV = -700;
-      this.player.setTint(0x3498db);
-      // pulso corto en el player
-      this.tweens.add({ targets: this.player, scaleX: 1.06, scaleY: 1.06, yoyo: true, duration: 120 });
-      this.time.delayedCall(5000, () => { this.speedX = 300; this.jumpV = -600; this.player.clearTint(); });
-      break;
-    case 'inv':
-      this.floatText(pu.x, pu.y, 'Invencible', '#f1c40f');
-      this.invincible = true;
-      this.player.setTint(0xf1c40f);
-      // aura rápida
-      const aura = this.add.circle(this.player.x, this.player.y, 22, 0xffff66, 0.2).setDepth(1).setBlendMode(Phaser.BlendModes.ADD);
-      const follow = this.time.addEvent({ delay: 16, loop: true, callback: () => aura.setPosition(this.player.x, this.player.y) });
-      this.tweens.add({ targets: aura, alpha: 0.35, yoyo: true, repeat: -1, duration: 300 });
-      this.time.delayedCall(4000, () => { this.invincible = false; this.player.clearTint(); aura.destroy(); follow.remove(false); });
-      break;
-  }
-}
-```
-
-> Esto respeta tu flujo de HUD y sonido, sólo mejora el *juice*. 
+1. **Canvas nítido**: inspecciona el `<canvas>` y confirma que tiene `image-rendering: pixelated` aplicado. 
+2. **Sin `setDisplaySize`** en monedas/power-ups; si ves blur, busca y elimina ese método. Usa `setScale(2)` entero si hace falta.
+3. **Anim corriendo**: monedas con `coin_spin` (12–14 fps), power-ups con `pu_*_idle` (8–12 fps). 
+4. **Cámara**: `roundPixels = true` (ya lo tienes). 
+5. **Filtro NEAREST** forzado en runtime para las hojas (paso 4). 
 
 ---
 
-# Plan de acción (para Codex)
+# ¿Por qué pasaba?
 
-1. **Copiar assets**: `coin_sheet.png`, `pu_life_sheet.png`, `pu_speed_sheet.png`, `pu_inv_sheet.png` → `public/assets/`.
-2. **Preloader.ts**
+* El **blur** venía del **antialias del canvas** y/o de **escalado CSS** del canvas; también de sub-píxeles al tweenear. Con `pixelArt: true`, `antialias: false`, `image-rendering: pixelated` y `roundPixels`, desaparece.   
 
-   * Comentar cuerpo de `createCoinSprite()` y `createPowerUpSprites()`.
-   * Añadir `load.spritesheet` y crear anims `coin_spin` y `pu_*_idle`.
-3. **Game.ts**
+---
 
-   * En `createCoins()`, usar `coin_sheet` + anim `coin_spin`, hitbox 16×16 y bobbing tween.
-   * En `createPowerUps()`, usar `pu_*_sheet` + anim `pu_*_idle`, blend ADD, hitbox 16×16 y bobbing tween.
-   * En `collectPowerUp()`, añadir flash/aura/pulso (manteniendo tu lógica actual de vidas/velocidad/invencibilidad).
-4. **Probar**: `pnpm dev` → revisar giro de monedas, pulso de power-ups, feedback visual al recoger.
-5. **Afinar**: subir/bajar `frameRate` (12–16 para monedas, 8–12 para power-ups), o amplitud del bobbing (±2–5 px).
-6. **Commit**: `feat(items): animated coin & power-up sheets + juicy FX`.
+Si quieres, te genero un **parche `.diff`** con:
+
+* cambio en `main.ts` (antialias),
+* CSS `image-rendering: pixelated`,
+* y snippet `setFilter(NEAREST)` en `Preloader.ts`.
 </file>
 
 <file path="docs/update-enemies.md">
@@ -798,512 +1018,6 @@ El resto del selector (persistencia y `registry`) ya te sirve tal cual.
 ¿Quieres que también te deje un **parche .diff** listo para aplicar sobre tu repo con todos los cambios?
 </file>
 
-<file path="log.js">
-const fs = require('fs');
-const https = require('https');
-
-const main = async () => {
-    const args = process.argv.slice(2);
-    const packageData = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
-    const event = args[0] || 'unknown';
-    const phaserVersion = packageData.dependencies.phaser;
-
-    const options = {
-        hostname: 'gryzor.co',
-        port: 443,
-        path: `/v/${event}/${phaserVersion}/${packageData.name}`,
-        method: 'GET'
-    };
-
-    try {
-        const req = https.request(options, (res) => {
-            res.on('data', () => {});
-            res.on('end', () => {
-                process.exit(0);
-            });
-        });
-
-        req.on('error', (error) => {
-            process.exit(1);
-        });
-
-        req.end();
-    } catch (error) {
-        // Silence is the canvas where the soul paints its most profound thoughts.
-        process.exit(1);
-    }
-}
-
-main();
-</file>
-
-<file path="src/game/scenes/Boot.ts">
-import { Scene } from 'phaser';
-
-export class Boot extends Scene
-{
-    constructor ()
-    {
-        super('Boot');
-    }
-
-    preload ()
-    {
-        //  The Boot Scene is typically used to load in any assets you require for your Preloader, such as a game logo or background.
-        //  The smaller the file size of the assets, the better, as the Boot Scene itself has no preloader.
-
-        this.load.image('background', 'assets/bg.png');
-    }
-
-    create ()
-    {
-        this.scene.start('Preloader');
-    }
-}
-</file>
-
-<file path="src/PhaserGame.vue">
-<script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
-import { EventBus } from './game/EventBus';
-import StartGame from './game/main';
-import Phaser from 'phaser';
-
-// Save the current scene instance
-const scene = ref();
-const game = ref();
-
-const emit = defineEmits(['current-active-scene']);
-
-onMounted(() => {
-
-    game.value = StartGame('game-container');
-    
-    EventBus.on('current-scene-ready', (scene_instance: Phaser.Scene) => {
-        
-        emit('current-active-scene', scene_instance);
-    
-        scene.value = scene_instance;
-    
-    });
-
-});
-
-onUnmounted(() => {
-
-    if (game.value)
-    {
-        game.value.destroy(true);
-        game.value = null;
-    }
-
-});
-
-defineExpose({ scene, game });
-
-</script>
-
-<template>
-    <div id="game-container"></div>
-</template>
-</file>
-
-<file path="src/vite-env.d.ts">
-/// <reference types="vite/client" />
-</file>
-
-<file path=".gitignore">
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-.DS_Store
-dist
-dist-ssr
-coverage
-*.local
-
-/cypress/videos/
-/cypress/screenshots/
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-*.tsbuildinfo
-
-.playwright-mcp
-</file>
-
-<file path="public/style.css">
-body {
-    margin: 0;
-    padding: 0;
-    color: rgba(255, 255, 255, 0.87);
-    background-color: #000000; 
-    font-family: Arial, Helvetica, sans-serif;
-}
-
-#app {
-    width: 100%;
-    height: 100vh;
-    overflow: hidden;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-
-.spritePosition {
-    margin: 10px 0 0 10px;
-    font-size: 0.8em;
-}
-
-.button {
-    width: 140px;
-    margin: 10px;
-    padding: 10px;
-    background-color: #000000;
-    color: rgba(255, 255, 255, 0.87);
-    border: 1px solid rgba(255, 255, 255, 0.87);
-    cursor: pointer;
-    transition: all 0.3s;
-
-    &:hover {
-        border: 1px solid #0ec3c9;
-        color: #0ec3c9;
-    }
-
-    &:active {
-        background-color: #0ec3c9;
-    }
-
-    /* Disabled styles */
-    &:disabled {
-        cursor: not-allowed;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        color: rgba(255, 255, 255, 0.3);
-    }
-}
-</file>
-
-<file path="src/game/audio/Sfx.ts">
-import { Scene } from 'phaser';
-
-export type WaveType = OscillatorType;
-
-// Simple WebAudio SFX helper using Phaser's audio context
-export class Sfx {
-  static tone(
-    scene: Scene,
-    freq: number,
-    duration = 0.15,
-    type: WaveType = 'sine',
-    volume = 0.2
-  ) {
-    // Use Phaser WebAudio context when available
-    // @ts-expect-error Phaser typing for sound.context exists at runtime
-    const ctx: AudioContext | undefined = scene.sound?.context as any;
-    if (!ctx || (ctx as any).state === 'closed') return; // Fallback: skip when no WebAudio or closed
-
-    const t0 = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, t0);
-
-    // Quick attack, short decay envelope
-    gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(volume, t0 + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start(t0);
-    osc.stop(t0 + duration + 0.02);
-  }
-
-  static click(scene: Scene) {
-    this.tone(scene, 600, 0.05, 'square', 0.15);
-  }
-
-  static jump(scene: Scene) {
-    this.tone(scene, 420, 0.12, 'square', 0.2);
-  }
-
-  static coin(scene: Scene) {
-    // Two short blips
-    this.tone(scene, 880, 0.06, 'triangle', 0.22);
-    setTimeout(() => this.tone(scene, 1320, 0.07, 'triangle', 0.2), 50);
-  }
-
-  static hit(scene: Scene) {
-    this.tone(scene, 180, 0.2, 'sawtooth', 0.25);
-  }
-
-  static win(scene: Scene) {
-    const notes = [660, 880, 990, 1320];
-    notes.forEach((f, i) => setTimeout(() => this.tone(scene, f, 0.08, 'triangle', 0.2), i * 90));
-  }
-
-  static gameOver(scene: Scene) {
-    this.tone(scene, 300, 0.18, 'sine', 0.22);
-    setTimeout(() => this.tone(scene, 220, 0.22, 'sine', 0.22), 160);
-  }
-
-  static powerUp(scene: Scene) {
-    const notes = [523, 659, 784];
-    notes.forEach((f, i) => setTimeout(() => this.tone(scene, f, 0.06, 'square', 0.18), i * 70));
-  }
-}
-</file>
-
-<file path="src/game/scenes/CharacterSelect.ts">
-import { Scene, GameObjects } from 'phaser';
-import { EventBus } from '../EventBus';
-import { Sfx } from '../audio/Sfx';
-
-type HeroKey = 'hero_speed' | 'hero_jump' | 'hero_tank';
-
-export class CharacterSelect extends Scene {
-  background!: GameObjects.Image;
-  title!: GameObjects.Text;
-  selected: HeroKey = 'hero_jump';
-  frames: Phaser.GameObjects.Rectangle[] = [];
-  imgs: Phaser.GameObjects.Image[] = [];
-  info!: Phaser.GameObjects.Text;
-  confirmBtn!: Phaser.GameObjects.Text;
-  backBtn!: Phaser.GameObjects.Text;
-
-  constructor() {
-    super('CharacterSelect');
-  }
-
-  create() {
-    this.background = this.add.image(512, 384, 'background');
-
-    this.title = this.add.text(512, 120, 'Selecciona tu héroe', {
-      fontFamily: 'Arial Black', fontSize: 48, color: '#ffffff',
-      stroke: '#000000', strokeThickness: 8, align: 'center'
-    }).setOrigin(0.5).setDepth(100);
-
-    try {
-      const saved = window.localStorage.getItem('selectedHero') as HeroKey | null;
-      if (saved) this.selected = saved;
-    } catch {}
-
-    this.layoutHeroes();
-    this.updateInfo();
-
-    this.confirmBtn = this.add.text(512, 650, 'Confirmar', {
-      fontFamily: 'Arial Black', fontSize: 36, color: '#00ff00', stroke: '#000000', strokeThickness: 6
-    }).setOrigin(0.5).setDepth(100).setInteractive({ useHandCursor: true });
-    this.confirmBtn.on('pointerdown', () => {
-      Sfx.click(this);
-      this.registry.set('selectedHero', this.selected);
-      // Reset de progreso de niveles al iniciar una nueva partida
-      this.registry.set('levelIndex', 1);
-      this.registry.set('path', '');
-      this.registry.set('carryScore', 0);
-      this.registry.set('carryLives', undefined);
-      try { window.localStorage.setItem('selectedHero', this.selected); } catch {}
-      this.scene.start('Game');
-    });
-
-    this.backBtn = this.add.text(100, 720, '← Volver', {
-      fontFamily: 'Arial', fontSize: 24, color: '#ffff00', stroke: '#000000', strokeThickness: 4
-    }).setOrigin(0, 1).setDepth(100).setInteractive({ useHandCursor: true });
-    this.backBtn.on('pointerdown', () => {
-      Sfx.click(this);
-      this.scene.start('MainMenu');
-    });
-
-    EventBus.emit('current-scene-ready', this);
-  }
-
-  private layoutHeroes() {
-    const defs: { key: HeroKey; sheet: string; label: string }[] = [
-      { key: 'hero_speed', sheet: 'hero_speed_sheet', label: 'Velocidad' },
-      { key: 'hero_jump', sheet: 'hero_jump_sheet', label: 'Salto' },
-      { key: 'hero_tank', sheet: 'hero_tank_sheet', label: 'Tanque' }
-    ];
-    const startX = 260;
-    const y = 360;
-    const gap = 260;
-
-    defs.forEach((h, i) => {
-      const x = startX + i * gap;
-      const frame = this.add.rectangle(x, y, 120, 120).setStrokeStyle(6, 0xffffff).setDepth(90);
-      const img = this.add.image(x, y - 10, h.sheet, 0).setScale(3).setInteractive({ useHandCursor: true }).setDepth(100);
-      this.add.text(x, y + 70, h.label, { fontFamily: 'Arial Black', fontSize: 22, color: '#ffffff', stroke: '#000000', strokeThickness: 4 }).setOrigin(0.5).setDepth(100);
-
-      img.on('pointerdown', () => {
-        Sfx.click(this);
-        this.selected = h.key;
-        try { window.localStorage.setItem('selectedHero', this.selected); } catch {}
-        this.updateFrames();
-        this.updateInfo();
-      });
-
-      this.frames.push(frame);
-      this.imgs.push(img);
-    });
-
-    this.updateFrames();
-  }
-
-  private updateFrames() {
-    const order: HeroKey[] = ['hero_speed', 'hero_jump', 'hero_tank'];
-    this.frames.forEach((f, idx) => {
-      const active = order[idx] === this.selected;
-      f.setStrokeStyle(6, active ? 0xffff00 : 0xffffff);
-    });
-  }
-
-  private updateInfo() {
-    const map: Record<HeroKey, { name: string; desc: string; stats: string }> = {
-      hero_speed: {
-        name: 'Velocidad',
-        desc: 'Se mueve más rápido, pero con menos vidas.',
-        stats: 'Velocidad: Alta | Salto: Medio | Vidas: 2'
-      },
-      hero_jump: {
-        name: 'Salto',
-        desc: 'Mayor altura de salto y balance general.',
-        stats: 'Velocidad: Media | Salto: Alto | Vidas: 3'
-      },
-      hero_tank: {
-        name: 'Tanque',
-        desc: 'Más resistencia con más vidas, menor velocidad.',
-        stats: 'Velocidad: Baja | Salto: Medio | Vidas: 4'
-      }
-    };
-    const i = map[this.selected];
-    if (!this.info) {
-      this.info = this.add.text(512, 500, `${i.name}\n${i.desc}\n${i.stats}`, {
-        fontFamily: 'Arial', fontSize: 22, color: '#ffffff', stroke: '#000000', strokeThickness: 4, align: 'center'
-      }).setOrigin(0.5).setDepth(100);
-    } else {
-      this.info.setText(`${i.name}\n${i.desc}\n${i.stats}`);
-    }
-  }
-}
-</file>
-
-<file path="src/main.ts">
-import App from './App.vue';
-import { createApp } from 'vue';
-
-createApp(App).mount('#app');
-</file>
-
-<file path="tsconfig.json">
-{
-    "compilerOptions": {
-        "target": "ES2020",
-        "useDefineForClassFields": true,
-        "module": "ESNext",
-        "lib": [
-            "ES2020",
-            "DOM",
-            "DOM.Iterable"
-        ],
-        "skipLibCheck": true,
-        /* Bundler mode */
-        "moduleResolution": "bundler",
-        "allowImportingTsExtensions": true,
-        "resolveJsonModule": true,
-        "isolatedModules": true,
-        "noEmit": true,
-        "jsx": "preserve",
-        /* Linting */
-        "strict": true,
-        "noUnusedLocals": true,
-        "noUnusedParameters": true,
-        "noFallthroughCasesInSwitch": true,
-        "strictPropertyInitialization": false
-    },
-    "include": [
-        "src/**/*.ts",
-        "src/**/*.tsx",
-        "src/**/*.vue"
-    ],
-    "references": [
-        {
-            "path": "./tsconfig.node.json"
-        }
-    ]
-}
-</file>
-
-<file path="vite/config.prod.mjs">
-import { fileURLToPath, URL } from 'node:url'
-import { defineConfig } from 'vite';
-import vue from '@vitejs/plugin-vue'
-
-const phasermsg = () => {
-    return {
-        name: 'phasermsg',
-        buildStart() {
-            process.stdout.write(`Building for production...\n`);
-        },
-        buildEnd() {
-            const line = "---------------------------------------------------------";
-            const msg = `❤️❤️❤️ Tell us about your game! - games@phaser.io ❤️❤️❤️`;
-            process.stdout.write(`${line}\n${msg}\n${line}\n`);
-
-            process.stdout.write(`✨ Done ✨\n`);
-        }
-    }
-}
-
-export default defineConfig({
-    base: './',
-    plugins: [
-        vue(),
-        phasermsg()
-    ],
-    resolve: {
-        alias: {
-          '@': fileURLToPath(new URL('../src', import.meta.url))
-        }
-      },
-    logLevel: 'warning',
-    build: {
-        rollupOptions: {
-            output: {
-                manualChunks: {
-                    phaser: ['phaser']
-                }
-            }
-        },
-        minify: 'terser',
-        terserOptions: {
-            compress: {
-                passes: 2
-            },
-            mangle: true,
-            format: {
-                comments: false
-            }
-        }
-    }
-});
-</file>
-
 <file path="env.d.ts">
 /// <reference types="vite/client" />
 </file>
@@ -1326,76 +1040,6 @@ export default defineConfig({
     <script type="module" src="src/main.ts"></script>
 </body>
 </html>
-</file>
-
-<file path="LICENSE">
-MIT License
-
-Copyright (c) 2025 Phaser Studio Inc
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-</file>
-
-<file path="src/game/EventBus.ts">
-import { Events } from 'phaser';
-
-// Used to emit events between components, HTML and Phaser scenes
-export const EventBus = new Events.EventEmitter();
-</file>
-
-<file path="tsconfig.node.json">
-{
-    "compilerOptions": {
-        "composite": true,
-        "skipLibCheck": true,
-        "module": "ESNext",
-        "moduleResolution": "bundler",
-        "allowSyntheticDefaultImports": true,
-        "strict": true
-    },
-    "include": [
-        "vite.config.ts"
-    ]
-}
-</file>
-
-<file path="vite/config.dev.mjs">
-import { fileURLToPath, URL } from 'node:url'
-
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-
-// https://vitejs.dev/config/
-export default defineConfig({
-    base: './',
-    plugins: [
-        vue(),
-    ],
-    resolve: {
-        alias: {
-            '@': fileURLToPath(new URL('../src', import.meta.url))
-        }
-    },
-    server: {
-        port: 8080
-    }
-})
 </file>
 
 <file path="JUEGO_PLATAFORMAS.md">
@@ -1499,6 +1143,89 @@ pnpm build
 - [ ] Sistema de niveles con mapas (Tiled) y tileset pixel art
 - [ ] Menú de pausa con reinicio rápido
 
+ - [ ] Sistema de tesoros/reliquias evolutivas (exploración con recompensa)
+ - [ ] Progresión visual/jugable del héroe (armas/armaduras)
+ - [ ] Goblins como guardianes de tesoros (llaves, minijefes, drops únicos)
+ - [ ] Inventario + UI de reliquias (equipar/descartar, slots, descripciones)
+ - [ ] Loot tables y rarezas (común/ rara/ épica/ legendaria)
+ - [ ] Santuarios/forjas para mejorar reliquias (costes y límites)
+ - [ ] Mapas con secretos/cofres/puertas selladas por llaves
+ - [ ] Meta‑progresión persistente entre partidas (desbloqueos globales)
+
+## 🧭 Exploración y Progresión (Propuesta)
+
+- Identidad del juego: aventura + progresión dinámica (no solo plataformas)
+- Exploras el mapa y encuentras reliquias con efectos pasivos/activos
+- Los goblins son guardianes de tesoros con propósito narrativo
+- El héroe evoluciona visual y mecánicamente (stats, armas y armaduras)
+- Implementación modular y por fases para integrarse con la arquitectura actual
+
+## 🗝️ Reliquias (Propuestas)
+
+| Tipo de reliquia | Efecto | Visual | Rareza |
+| --- | --- | --- | --- |
+| Amuleto de Vigor | +1 salto extra | Aura verde | Común |
+| Cráneo Rúnico | Ataque mágico cargado | Efecto púrpura | Raro |
+| Gema de la Sombra | Invisibilidad temporal | Sombras | Épico |
+
+Mecánica: al recoger, la reliquia se guarda en `player.relics` y activa una habilidad permanente o con cooldown según su tipo.
+
+| Tipo de reliquia | Efecto | Visual | Rareza |
+| --- | --- | --- | --- |
+| Corona del Rey Goblin | Aliados goblin temporalmente neutrales | Corona visible | Legendario |
+
+## ⚔️ Sistema de Armas y Armaduras
+
+Equipamiento visible con impacto real en el juego.
+
+| Slot | Ejemplo | Beneficio | Visual |
+| --- | --- | --- | --- |
+| Casco | Casco de Bronce | +10% defensa | Cambiado en sprite |
+| Armadura | Cota de Escamas | Reduce daño | Sprite más robusto |
+| Arma | Ballesta | Disparos a distancia | Anim nueva |
+| Escudo | Escudo de Torre | Parry / bloquear | Anim defensiva |
+
+Notas:
+- Inicio sugerido: 3 armas (espada básica, ballesta, lanza).
+- Cada arma cambia rango de ataque y animaciones del héroe.
+
+## 👹 Nuevos Enemigos Temáticos
+
+Goblins guardianes:
+- Guardias de tesoro: más fuertes, defienden cofres.
+- Chamanes: disparan magia, invocan crías.
+- Goblins élite: equipados con cascos, sueltan partes de armadura al morir.
+
+Nidos de crías:
+- Rápidas, atacan en enjambre.
+- Ataque débil; si te descuidas te paralizan saltando encima.
+- Ideales para cuevas y zonas ocultas.
+
+## 🧍 Progresión del Jugador (Visual + Gameplay)
+
+- Escudo recogido → aparece en el sprite (lado izquierdo) y permite bloquear/parry.
+- Casco obtenido → nueva cabeza/peinado/forma.
+- Armadura equipada → torso cambia (defensa efectiva).
+- Arma equipada → animación y rango de ataque diferente.
+
+Implementación técnica: sprites por capas (cabeza/torso/brazos/casco/arma) agrupados; Phaser soporta múltiples GameObjects por personaje.
+
+## 🧩 Implementación por Fases
+
+Fase 1: Habilidades por tesoro (sin equipamiento visual aún)
+- Añadir cofres con reliquias.
+- Cada reliquia modifica atributos del héroe.
+- Persisten entre niveles.
+
+Fase 2: Equipables con cambios visuales
+- Dividir sprite del héroe en capas.
+- Añadir slots: arma + casco + armadura.
+
+Fase 3: Nuevos enemigos y nidos
+- Grupo “crías goblin”.
+- Goblin guardián con armadura y arma.
+- Cofres protegidos por enemigos.
+
 ## 🎮 Tips para Jugar
 
 1. **Explora todo el nivel**: Las monedas están distribuidas en diferentes alturas
@@ -1510,1266 +1237,175 @@ pnpm build
 ¡Disfruta del juego y trata de conseguir la puntuación más alta posible! 🏆
 </file>
 
-<file path="src/App.vue">
-<script setup lang="ts">
-import Phaser from 'phaser';
-import { ref, toRaw } from 'vue';
-import type { MainMenu } from './game/scenes/MainMenu';
-import PhaserGame from './PhaserGame.vue';
+<file path="LICENSE">
+MIT License
 
-// The sprite can only be moved in the MainMenu Scene
-const canMoveSprite = ref();
+Copyright (c) 2025 Phaser Studio Inc
 
-//  References to the PhaserGame component (game and scene are exposed)
-const phaserRef = ref();
-const spritePosition = ref({ x: 0, y: 0 });
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-const changeScene = () => {
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-    const scene = toRaw(phaserRef.value.scene) as MainMenu;
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+</file>
 
-    if (scene)
-    {
-        //  Call the changeScene method defined in the `MainMenu`, `Game` and `GameOver` Scenes
-        scene.changeScene();
-    }
+<file path="log.js">
+const fs = require('fs');
+const https = require('https');
 
-}
+const main = async () => {
+    const args = process.argv.slice(2);
+    const packageData = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
+    const event = args[0] || 'unknown';
+    const phaserVersion = packageData.dependencies.phaser;
 
-const moveSprite = () => {
+    const options = {
+        hostname: 'gryzor.co',
+        port: 443,
+        path: `/v/${event}/${phaserVersion}/${packageData.name}`,
+        method: 'GET'
+    };
 
-    if (phaserRef.value !== undefined)
-    {
-
-        const scene = toRaw(phaserRef.value.scene) as MainMenu;
-
-        if (scene)
-        {
-            // Get the update logo position
-            (scene as MainMenu).moveLogo(({ x, y }) => {
-
-                spritePosition.value = { x, y };
-
+    try {
+        const req = https.request(options, (res) => {
+            res.on('data', () => {});
+            res.on('end', () => {
+                process.exit(0);
             });
-        }
-    }
-
-}
-
-const addSprite = () => {
-
-    const scene = toRaw(phaserRef.value.scene) as Phaser.Scene;
-
-    if (scene)
-    {
-        // Add a new sprite to the current scene at a random position
-        const x = Phaser.Math.Between(64, scene.scale.width - 64);
-        const y = Phaser.Math.Between(64, scene.scale.height - 64);
-    
-        // `add.sprite` is a Phaser GameObjectFactory method and it returns a Sprite Game Object instance
-        const star = scene.add.sprite(x, y, 'star');
-
-        //  ... which you can then act upon. Here we create a Phaser Tween to fade the star sprite in and out.
-        //  You could, of course, do this from within the Phaser Scene code, but this is just an example
-        //  showing that Phaser objects and systems can be acted upon from outside of Phaser itself.
-        scene.add.tween({
-            targets: star,
-            duration: 500 + Math.random() * 1000,
-            alpha: 0,
-            yoyo: true,
-            repeat: -1
         });
+
+        req.on('error', (error) => {
+            process.exit(1);
+        });
+
+        req.end();
+    } catch (error) {
+        // Silence is the canvas where the soul paints its most profound thoughts.
+        process.exit(1);
     }
-
 }
 
-// Event emitted from the PhaserGame component
-const currentScene = (scene: MainMenu) => {
-
-    canMoveSprite.value = (scene.scene.key !== "MainMenu");
-
-}
-
-</script>
-
-<template>
-    <PhaserGame ref="phaserRef" @current-active-scene="currentScene" />
-    <div>
-        <div>
-            <button class="button" @click="changeScene">Change Scene</button>
-        </div>
-        <div>
-            <button :disabled="canMoveSprite" class="button" @click="moveSprite">Toggle Movement</button>
-        </div>
-        <div class="spritePosition">Sprite Position:
-            <pre>{{ spritePosition }}</pre>
-        </div>
-        <div>
-            <button class="button" @click="addSprite">Add New Sprite</button>
-        </div>
-    </div>
-</template>
+main();
 </file>
 
-<file path="src/game/scenes/GameOver.ts">
-import { EventBus } from '../EventBus';
-import { Sfx } from '../audio/Sfx';
-import { Scene } from 'phaser';
-
-export class GameOver extends Scene
+<file path="package.json">
 {
-    camera: Phaser.Cameras.Scene2D.Camera;
-    background: Phaser.GameObjects.Image;
-    gameOverText : Phaser.GameObjects.Text;
-
-    constructor ()
-    {
-        super('GameOver');
-    }
-
-    create ()
-    {
-        this.camera = this.cameras.main
-        this.camera.setBackgroundColor(0x2c3e50);
-
-        this.background = this.add.image(512, 384, 'background');
-        this.background.setAlpha(0.3);
-
-        this.gameOverText = this.add.text(512, 300, 'Fin del Juego', {
-            fontFamily: 'Arial Black', fontSize: 64, color: '#ffffff',
-            stroke: '#000000', strokeThickness: 8,
-            align: 'center'
-        }).setOrigin(0.5).setDepth(100);
-
-        // Mostrar puntuación final si está disponible
-        const finalScore = this.registry.get('finalScore') || 0;
-        this.add.text(512, 400, `Puntuación Final: ${finalScore}`, {
-            fontFamily: 'Arial', fontSize: 32, color: '#ffffff',
-            stroke: '#000000', strokeThickness: 4,
-            align: 'center'
-        }).setOrigin(0.5).setDepth(100);
-
-        // Botón para volver al menú
-        this.add.text(512, 500, 'Haz clic para volver al menú', {
-            fontFamily: 'Arial', fontSize: 24, color: '#ffff00',
-            stroke: '#000000', strokeThickness: 4,
-            align: 'center'
-        }).setOrigin(0.5).setDepth(100);
-
-        // Hacer la pantalla clickeable para volver al menú
-        this.input.once('pointerdown', () => {
-            Sfx.click(this);
-            this.changeScene();
-        });
-        
-        EventBus.emit('current-scene-ready', this);
-    }
-
-    changeScene ()
-    {
-        this.scene.start('MainMenu');
-    }
-}
-</file>
-
-<file path="src/game/scenes/Preloader.ts">
-import { Scene } from 'phaser';
-
-export class Preloader extends Scene
-{
-    constructor ()
-    {
-        super('Preloader');
-    }
-
-    init ()
-    {
-        //  We loaded this image in our Boot Scene, so we can display it here
-        this.add.image(512, 384, 'background');
-
-        //  A simple progress bar. This is the outline of the bar.
-        this.add.rectangle(512, 384, 468, 32).setStrokeStyle(1, 0xffffff);
-
-        //  This is the progress bar itself. It will increase in size from the left based on the % of progress.
-        const bar = this.add.rectangle(512-230, 384, 4, 28, 0xffffff);
-
-        //  Use the 'progress' event emitted by the LoaderPlugin to update the loading bar
-        this.load.on('progress', (progress: number) => {
-
-            //  Update the progress bar (our bar is 464px wide, so 100% = 464px)
-            bar.width = 4 + (460 * progress);
-
-        });
-    }
-
-    preload ()
-    {
-        //  Load the assets for the game - Replace with your own assets
-        this.load.setPath('assets');
-
-        this.load.image('logo', 'logo.png');
-        this.load.image('star', 'star.png');
-        this.load.image('intro', 'intro.png');
-        
-        // Cargar spritesheets de héroes
-        this.load.spritesheet('hero_speed_sheet', 'hero_speed_sheet.png', { frameWidth: 32, frameHeight: 32 });
-        this.load.spritesheet('hero_jump_sheet', 'hero_jump_sheet.png', { frameWidth: 32, frameHeight: 32 });
-        this.load.spritesheet('hero_tank_sheet', 'hero_tank_sheet.png', { frameWidth: 32, frameHeight: 32 });
-
-        // Cargar spritesheets de enemigos y jefe
-        this.load.spritesheet('goblin_green_sheet', 'goblin_green_sheet.png', { frameWidth: 32, frameHeight: 32 });
-        this.load.spritesheet('goblin_red_sheet', 'goblin_red_sheet.png', { frameWidth: 32, frameHeight: 32 });
-        this.load.spritesheet('boss_troll_sheet', 'boss_troll_sheet.png', { frameWidth: 64, frameHeight: 64 });
-
-        // Cargar spritesheets de monedas y power-ups
-        this.load.spritesheet('coin_sheet', 'coin_sheet.png', { frameWidth: 24, frameHeight: 24 });
-        this.load.spritesheet('pu_life_sheet', 'pu_life_sheet.png', { frameWidth: 24, frameHeight: 24 });
-        this.load.spritesheet('pu_speed_sheet', 'pu_speed_sheet.png', { frameWidth: 24, frameHeight: 24 });
-        this.load.spritesheet('pu_inv_sheet', 'pu_inv_sheet.png', { frameWidth: 24, frameHeight: 24 });
-        
-        // Crear sprites proceduralmente para el juego de plataformas (player/platform/enemy/doors)
-        this.createPlayerSprite();
-        this.createPlatformSprite();
-        this.createEnemySprite();
-        // Monedas y power-ups vendrán de spritesheets — no generamos aquí
-        this.createDoorAndBossSprites();
-    }
-
-    createPlayerSprite()
-    {
-        // Crear un sprite del jugador (cuadrado azul)
-        const graphics = this.add.graphics();
-        graphics.fillStyle(0x3498db);
-        graphics.fillRect(0, 0, 32, 32);
-        graphics.generateTexture('player', 32, 32);
-        graphics.destroy();
-    }
-
-    createPlatformSprite()
-    {
-        // Crear sprite de plataforma (rectángulo marrón)
-        const graphics = this.add.graphics();
-        graphics.fillStyle(0x8B4513);
-        graphics.fillRect(0, 0, 100, 20);
-        graphics.generateTexture('platform', 100, 20);
-        graphics.destroy();
-    }
-
-    createEnemySprite()
-    {
-        // Crear sprite de enemigo (círculo rojo)
-        const graphics = this.add.graphics();
-        graphics.fillStyle(0xe74c3c);
-        graphics.fillCircle(16, 16, 16);
-        graphics.generateTexture('enemy', 32, 32);
-        graphics.destroy();
-    }
-
-    createCoinSprite() { /* no-op, usamos spritesheet */ }
-    createPowerUpSprites() { /* no-op, usamos spritesheet */ }
-
-    createDoorAndBossSprites()
-    {
-        // Puerta (marrón con marco claro)
-        let g = this.add.graphics();
-        g.fillStyle(0x8B4513);
-        g.fillRect(0, 0, 32, 48);
-        g.lineStyle(3, 0xdeb887);
-        g.strokeRect(0, 0, 32, 48);
-        g.fillStyle(0x3e2723); g.fillRect(10, 20, 12, 12); // pomo
-        g.generateTexture('door', 32, 48);
-        g.destroy();
-
-        // Proyectil (orbe morado)
-        g = this.add.graphics();
-        g.fillStyle(0x8e44ad); g.fillCircle(6, 6, 6);
-        g.lineStyle(2, 0xffffff); g.strokeCircle(6, 6, 6);
-        g.generateTexture('projectile', 12, 12);
-        g.destroy();
-
-        // Jefe (enemigo grande)
-        g = this.add.graphics();
-        g.fillStyle(0xc0392b);
-        g.fillCircle(32, 32, 32);
-        g.lineStyle(4, 0x000000); g.strokeCircle(32, 32, 32);
-        g.generateTexture('boss', 64, 64);
-        g.destroy();
-
-        // Glow de puerta (círculo amarillo con alpha)
-        g = this.add.graphics();
-        for (let r = 44; r >= 16; r -= 8) {
-            const alpha = (r - 12) / 44 * 0.25;
-            g.fillStyle(0xfff176, alpha);
-            g.fillCircle(48, 48, r);
-        }
-        g.generateTexture('door_glow', 96, 96);
-        g.destroy();
-
-        // Flecha guía (triángulo)
-        g = this.add.graphics();
-        g.fillStyle(0xffff00, 1);
-        g.fillTriangle(12, 24, 24, 24, 18, 8);
-        g.lineStyle(2, 0x000000, 0.8);
-        g.strokeTriangle(12, 24, 24, 24, 18, 8);
-        g.generateTexture('door_arrow', 36, 32);
-        g.destroy();
-    }
-
-    createHeroSprites()
-    {
-        // Función eliminada - ahora usamos spritesheets desde assets
-    }
-
-    create ()
-    {
-        // Definir animaciones para cada héroe desde las spritesheets
-        
-        // SPEED
-        this.anims.create({ key: 'idle_speed', frames: this.anims.generateFrameNumbers('hero_speed_sheet', { start: 0, end: 3 }), frameRate: 6, repeat: -1 });
-        this.anims.create({ key: 'walk_speed', frames: this.anims.generateFrameNumbers('hero_speed_sheet', { start: 4, end: 9 }), frameRate: 12, repeat: -1 });
-        this.anims.create({ key: 'jump_speed', frames: this.anims.generateFrameNumbers('hero_speed_sheet', { start: 10, end: 12 }), frameRate: 8, repeat: 0 });
-        this.anims.create({ key: 'pick_speed', frames: this.anims.generateFrameNumbers('hero_speed_sheet', { start: 13, end: 16 }), frameRate: 10, repeat: 0 });
-
-        // JUMP
-        this.anims.create({ key: 'idle_jump', frames: this.anims.generateFrameNumbers('hero_jump_sheet', { start: 0, end: 3 }), frameRate: 6, repeat: -1 });
-        this.anims.create({ key: 'walk_jump', frames: this.anims.generateFrameNumbers('hero_jump_sheet', { start: 4, end: 9 }), frameRate: 12, repeat: -1 });
-        this.anims.create({ key: 'jump_jump', frames: this.anims.generateFrameNumbers('hero_jump_sheet', { start: 10, end: 12 }), frameRate: 8, repeat: 0 });
-        this.anims.create({ key: 'pick_jump', frames: this.anims.generateFrameNumbers('hero_jump_sheet', { start: 13, end: 16 }), frameRate: 10, repeat: 0 });
-
-        // TANK
-        this.anims.create({ key: 'idle_tank', frames: this.anims.generateFrameNumbers('hero_tank_sheet', { start: 0, end: 3 }), frameRate: 5, repeat: -1 });
-        this.anims.create({ key: 'walk_tank', frames: this.anims.generateFrameNumbers('hero_tank_sheet', { start: 4, end: 9 }), frameRate: 10, repeat: -1 });
-        this.anims.create({ key: 'jump_tank', frames: this.anims.generateFrameNumbers('hero_tank_sheet', { start: 10, end: 12 }), frameRate: 6, repeat: 0 });
-        this.anims.create({ key: 'pick_tank', frames: this.anims.generateFrameNumbers('hero_tank_sheet', { start: 13, end: 16 }), frameRate: 8, repeat: 0 });
-
-        // GOBLINS (verde y rojo comparten animaciones)
-        this.anims.create({ key: 'goblin_idle', frames: this.anims.generateFrameNumbers('goblin_green_sheet', { start: 0, end: 3 }), frameRate: 6, repeat: -1 });
-        this.anims.create({ key: 'goblin_run', frames: this.anims.generateFrameNumbers('goblin_green_sheet', { start: 4, end: 9 }), frameRate: 10, repeat: -1 });
-        this.anims.create({ key: 'goblin_atk', frames: this.anims.generateFrameNumbers('goblin_green_sheet', { start: 10, end: 12 }), frameRate: 8, repeat: 0 });
-        this.anims.create({ key: 'goblin_hit', frames: this.anims.generateFrameNumbers('goblin_green_sheet', { start: 13, end: 16 }), frameRate: 10, repeat: 0 });
-
-        // TROLL (jefe)
-        this.anims.create({ key: 'troll_idle', frames: this.anims.generateFrameNumbers('boss_troll_sheet', { start: 0, end: 3 }), frameRate: 5, repeat: -1 });
-        this.anims.create({ key: 'troll_run', frames: this.anims.generateFrameNumbers('boss_troll_sheet', { start: 4, end: 9 }), frameRate: 8, repeat: -1 });
-        this.anims.create({ key: 'troll_cast', frames: this.anims.generateFrameNumbers('boss_troll_sheet', { start: 10, end: 12 }), frameRate: 8, repeat: 0 });
-        this.anims.create({ key: 'troll_portal', frames: this.anims.generateFrameNumbers('boss_troll_sheet', { start: 13, end: 16 }), frameRate: 10, repeat: 0 });
-
-        // MONEDA: animación de giro usando spritesheet
-        // Formato 8x2 (16 frames): 0..15
-        this.anims.create({ key: 'coin_spin', frames: this.anims.generateFrameNumbers('coin_sheet', { start: 0, end: 15 }), frameRate: 14, repeat: -1 });
-
-        // POWER-UPS: pulso suave
-        // POWER-UPS: animación idle desde spritesheet (pulso)
-        const puSheets = ['pu_life_sheet', 'pu_speed_sheet', 'pu_inv_sheet'] as const;
-        const puKeys = ['pu_life_idle', 'pu_speed_idle', 'pu_inv_idle'] as const;
-        puSheets.forEach((sheet, idx) => {
-            this.anims.create({ key: puKeys[idx], frames: this.anims.generateFrameNumbers(sheet, { start: 0, end: 15 }), frameRate: 10, repeat: -1 });
-        });
-
-        //  Mover al menú principal
-        this.scene.start('MainMenu');
-    }
-}
-</file>
-
-<file path="src/game/scenes/Game.ts">
-import { EventBus } from '../EventBus';
-import { Sfx } from '../audio/Sfx';
-import { Scene } from 'phaser';
-
-export class Game extends Scene
-{
-    camera: Phaser.Cameras.Scene2D.Camera;
-    background: Phaser.GameObjects.Image;
-    heroKey: string = 'hero_jump';
-    levelIndex: number = 1;
-    path: string = '';
-    
-    // Elementos del juego
-    player!: Phaser.Physics.Arcade.Sprite;
-    platforms!: Phaser.Physics.Arcade.StaticGroup;
-    enemies!: Phaser.Physics.Arcade.Group;
-    coins!: Phaser.Physics.Arcade.Group;
-    powerUps!: Phaser.Physics.Arcade.Group;
-    doors!: Phaser.Physics.Arcade.StaticGroup;
-    cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-    spaceKey!: Phaser.Input.Keyboard.Key;
-    wasd!: { left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key; up: Phaser.Input.Keyboard.Key };
-    
-    // UI
-    scoreText!: Phaser.GameObjects.Text;
-    livesText!: Phaser.GameObjects.Text;
-    coinsText!: Phaser.GameObjects.Text;
-    
-    // Variables del juego
-    score: number = 0;
-    lives: number = 3;
-    gameWon: boolean = false;
-    speedX: number = 300;
-    jumpV: number = -600;
-    invincible: boolean = false;
-    levelComplete: boolean = false;
-    boss?: Phaser.Physics.Arcade.Image;
-    projectiles?: Phaser.Physics.Arcade.Group;
-    shootTimer?: Phaser.Time.TimerEvent;
-    teleportTimer?: Phaser.Time.TimerEvent;
-
-    constructor ()
-    {
-        super('Game');
-    }
-
-    create ()
-    {
-        this.camera = this.cameras.main;
-        this.camera.setBackgroundColor(0x87CEEB); // Azul cielo
-        this.camera.roundPixels = true; // Evitar sub-pixel blur en pixel art
-
-        // Reset de estado de nivel al (re)entrar
-        this.gameWon = false;
-        this.levelComplete = false;
-        this.invincible = false;
-        if (this.doors) { try { this.doors.destroy(true); } catch {} this.doors = undefined as any; }
-        if (this.shootTimer) { this.shootTimer.remove(false); this.shootTimer = undefined; }
-        if (this.teleportTimer) { this.teleportTimer.remove(false); this.teleportTimer = undefined; }
-        if (this.projectiles) { try { this.projectiles.destroy(true); } catch {} this.projectiles = undefined; }
-        if (this.boss) { try { this.boss.destroy(); } catch {} this.boss = undefined; }
-
-        // Selección de héroe
-        const sel = this.registry.get('selectedHero');
-        if (sel && typeof sel === 'string') {
-            this.heroKey = sel;
-        }
-
-        // Estado de nivel y camino
-        const idx = this.registry.get('levelIndex');
-        this.levelIndex = typeof idx === 'number' ? idx : 1;
-        const p = this.registry.get('path');
-        this.path = typeof p === 'string' ? p : '';
-
-        this.applyHeroStats();
-
-        // Continuidad de puntuación/vidas después de aplicar stats base
-        const carryScore = this.registry.get('carryScore');
-        if (typeof carryScore === 'number') this.score = carryScore;
-        const carryLives = this.registry.get('carryLives');
-        if (typeof carryLives === 'number') this.lives = carryLives;
-
-        // Crear plataformas
-        this.createPlatforms();
-        
-        // Crear jugador
-        this.createPlayer();
-        
-        // Crear enemigos
-        this.createEnemies();
-        
-        // Crear monedas
-        this.createCoins();
-
-        // Crear power-ups
-        this.createPowerUps();
-
-        // Jefe en nivel 3
-        if (this.levelIndex >= 3) {
-            this.spawnBoss();
-        }
-        
-        // Configurar controles (flechas + WASD) y capturas de teclado
-        this.cursors = this.input.keyboard!.createCursorKeys();
-        this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-        this.input.keyboard!.addCapture(['UP','DOWN','LEFT','RIGHT','SPACE','W','A','S','D']);
-        this.wasd = {
-            left: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-            right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
-            up: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.W)
-        };
-        
-        // Crear UI
-        this.createUI();
-        
-        // Configurar física
-        this.setupPhysics();
-
-        EventBus.emit('current-scene-ready', this);
-    }
-
-    createPlatforms()
-    {
-        this.platforms = this.physics.add.staticGroup();
-        
-        // Plataforma base
-        this.platforms.create(512, 768, 'platform').setScale(10, 1).refreshBody();
-
-        const choice = this.getPathChoice();
-        if (this.levelIndex === 1) {
-            this.levelLayoutA();
-        } else if (this.levelIndex === 2) {
-            choice === 'A' ? this.levelLayoutA2() : this.levelLayoutB2();
-        } else {
-            choice === 'A' ? this.levelLayoutA3() : this.levelLayoutB3();
-        }
-    }
-
-    createPlayer()
-    {
-        const sheet = this.sheetKeyFromHero(this.heroKey);
-        this.player = this.physics.add.sprite(100, 700, sheet, 0);
-        this.player.setBounce(0.2);
-        this.player.setCollideWorldBounds(true);
-        this.player.setScale(1);
-    }
-
-    private sheetKeyFromHero(key: string): string
-    {
-        if (key === 'hero_speed') return 'hero_speed_sheet';
-        if (key === 'hero_tank') return 'hero_tank_sheet';
-        return 'hero_jump_sheet';
-    }
-
-    applyHeroStats()
-    {
-        // Defaults
-        this.speedX = 300;
-        this.jumpV = -600;
-        this.lives = 3;
-
-        switch (this.heroKey) {
-            case 'hero_speed':
-                this.speedX = 420;
-                this.jumpV = -600;
-                this.lives = 2;
-                break;
-            case 'hero_jump':
-                this.speedX = 300;
-                this.jumpV = -750;
-                this.lives = 3;
-                break;
-            case 'hero_tank':
-                this.speedX = 250;
-                this.jumpV = -600;
-                this.lives = 4;
-                break;
-        }
-    }
-
-    createEnemies()
-    {
-        this.enemies = this.physics.add.group();
-        const choice = this.getPathChoice();
-        let enemyPositions: { x: number; y: number }[] = [];
-        if (this.levelIndex === 1) {
-            enemyPositions = [ { x: 500, y: 500 }, { x: 800, y: 400 }, { x: 200, y: 300 }, { x: 600, y: 200 } ];
-        } else if (this.levelIndex === 2) {
-            enemyPositions = choice === 'A'
-                ? [ { x: 300, y: 520 }, { x: 700, y: 420 } ]
-                : [ { x: 200, y: 480 }, { x: 850, y: 280 }, { x: 500, y: 360 } ];
-        } else {
-            enemyPositions = choice === 'A'
-                ? [ { x: 250, y: 500 }, { x: 750, y: 300 } ]
-                : [ { x: 400, y: 520 }, { x: 900, y: 380 } ];
-        }
-
-        enemyPositions.forEach((pos, idx) => {
-            // Alterna verde/rojo para variedad
-            const key = (idx % 2 === 0) ? 'goblin_green_sheet' : 'goblin_red_sheet';
-            const gob = this.enemies.create(pos.x, pos.y, key, 0) as Phaser.Physics.Arcade.Sprite;
-
-            gob.setBounce(1).setCollideWorldBounds(true);
-            gob.setVelocity(Phaser.Math.Between(-200, 200), 0);
-            gob.setScale(1.5); // Aumentar escala
-
-            // Caja un pelín más estrecha que el 32x32
-            gob.body!.setSize(20, 26).setOffset(6, 6);
-
-            gob.play('goblin_run');
-        });
-    }
-
-    createCoins()
-    {
-        this.coins = this.physics.add.group();
-        const choice = this.getPathChoice();
-        let coins: { x: number; y: number }[] = [];
-        if (this.levelIndex === 1) {
-            coins = [ { x: 250, y: 600 }, { x: 550, y: 500 }, { x: 850, y: 400 }, { x: 250, y: 300 }, { x: 650, y: 200 }, { x: 150, y: 100 }, { x: 950, y: 100 }, { x: 512, y: 50 } ];
-        } else if (this.levelIndex === 2) {
-            coins = choice === 'A'
-                ? [ { x: 200, y: 600 }, { x: 400, y: 520 }, { x: 680, y: 420 }, { x: 820, y: 320 }, { x: 512, y: 240 }, { x: 150, y: 180 }, { x: 900, y: 180 }, { x: 512, y: 80 } ]
-                : [ { x: 300, y: 580 }, { x: 520, y: 520 }, { x: 740, y: 460 }, { x: 900, y: 360 }, { x: 620, y: 260 }, { x: 420, y: 200 }, { x: 200, y: 160 }, { x: 850, y: 120 } ];
-        } else {
-            coins = choice === 'A'
-                ? [ { x: 250, y: 560 }, { x: 500, y: 460 }, { x: 750, y: 360 }, { x: 300, y: 260 }, { x: 600, y: 160 }, { x: 900, y: 160 }, { x: 150, y: 120 }, { x: 512, y: 80 } ]
-                : [ { x: 200, y: 600 }, { x: 450, y: 520 }, { x: 700, y: 420 }, { x: 900, y: 300 }, { x: 550, y: 220 }, { x: 300, y: 180 }, { x: 150, y: 140 }, { x: 512, y: 100 } ];
-        }
-        coins.forEach(pos => {
-            const coin = this.coins.create(pos.x, pos.y, 'coin_sheet', 0) as Phaser.Physics.Arcade.Sprite;
-            coin.setBounce(0.4);
-            coin.setCollideWorldBounds(true);
-            coin.setScale(1); // tamaño nativo 24x24
-            coin.play('coin_spin');
-
-            // hitbox compacta
-            coin.body!.setSize(16, 16).setOffset(4, 4);
-
-            // bob vertical sutil
-            this.tweens.add({ targets: coin, y: coin.y - 2, yoyo: true, repeat: -1, duration: 650, ease: 'Sine.inOut' });
-            // mantén solo el bob vertical para no deformar los pixels
-        });
-    }
-
-    createUI()
-    {
-        this.scoreText = this.add.text(16, 16, 'Puntuación: 0', {
-            fontSize: '32px',
-            color: '#000'
-        });
-        if (this.score > 0) {
-            this.scoreText.setText('Puntuación: ' + this.score);
-        }
-        
-        this.livesText = this.add.text(16, 60, 'Vidas: ' + this.lives, {
-            fontSize: '32px',
-            color: '#000'
-        });
-        
-        this.coinsText = this.add.text(16, 104, 'Monedas: 8/8', {
-            fontSize: '32px',
-            color: '#000'
-        });
-
-        // Texto de héroe y stats (arriba derecha)
-        const heroLabel = this.heroKey === 'hero_speed' ? 'Velocidad' : this.heroKey === 'hero_tank' ? 'Tanque' : 'Salto';
-        const stats = `VEL ${this.speedX} | SALTO ${Math.abs(this.jumpV)} | VIDAS ${this.lives}`;
-        this.add.text(1024 - 16, 16, `Nivel: ${this.levelIndex}\nHéroe: ${heroLabel}\n${stats}`, {
-            fontSize: '20px',
-            color: '#000',
-            align: 'right'
-        }).setOrigin(1, 0);
-    }
-
-    setupPhysics()
-    {
-        // Colisiones del jugador con plataformas
-        this.physics.add.collider(this.player, this.platforms);
-        
-        // Colisiones de enemigos con plataformas
-        this.physics.add.collider(this.enemies, this.platforms);
-        
-        // Colisiones de monedas con plataformas
-        this.physics.add.collider(this.coins, this.platforms);
-        
-        // Colisiones de power-ups con plataformas
-        this.physics.add.collider(this.powerUps, this.platforms);
-        
-        // Colisión jugador con enemigos
-        this.physics.add.overlap(this.player, this.enemies, this.hitEnemy, undefined, this);
-        
-        // Colisión jugador con monedas
-        this.physics.add.overlap(this.player, this.coins, this.collectCoin, undefined, this);
-
-        // Colisión jugador con power-ups
-        this.physics.add.overlap(this.player, this.powerUps, this.collectPowerUp, undefined, this);
-
-        // Proyectiles del jefe
-        if (this.projectiles) {
-            this.physics.add.overlap(this.player, this.projectiles, this.hitEnemy, undefined, this);
-            this.physics.add.collider(this.projectiles, this.platforms, (proj: any) => proj.destroy());
-        }
-    }
-
-    update()
-    {
-        // Controles del jugador (flechas o WASD)
-        const leftPressed = (this.cursors?.left?.isDown) || this.wasd?.left?.isDown;
-        const rightPressed = (this.cursors?.right?.isDown) || this.wasd?.right?.isDown;
-        if (leftPressed)
-        {
-            this.player.setVelocityX(-this.speedX);
-            this.player.setFlipX(true);
-        }
-        else if (rightPressed)
-        {
-            this.player.setVelocityX(this.speedX);
-            this.player.setFlipX(false);
-        }
-        else
-        {
-            this.player.setVelocityX(0);
-        }
-
-        if (this.player.body!.touching.down)
-        {
-            const upKey = this.cursors?.up;
-            const wKey = this.wasd?.up;
-            const space = this.spaceKey;
-            if ((upKey && Phaser.Input.Keyboard.JustDown(upKey)) || (wKey && Phaser.Input.Keyboard.JustDown(wKey)) || Phaser.Input.Keyboard.JustDown(space))
-            {
-                this.player.setVelocityY(this.jumpV);
-                Sfx.jump(this);
-            }
-        }
-        
-        // Animaciones: caminar / salto / idle
-        const onGround = this.player.body!.touching.down;
-        const vx = this.player.body!.velocity.x;
-        const moving = Math.abs(vx) > 10 && onGround;
-
-        const isSpeed = this.heroKey === 'hero_speed';
-        const isTank = this.heroKey === 'hero_tank';
-        const walkKey = isSpeed ? 'walk_speed' : isTank ? 'walk_tank' : 'walk_jump';
-        const idleKey = isSpeed ? 'idle_speed' : isTank ? 'idle_tank' : 'idle_jump';
-        const jumpKey = isSpeed ? 'jump_speed' : isTank ? 'jump_tank' : 'jump_jump';
-
-        if (!onGround) {
-            if (this.player.anims.currentAnim?.key !== jumpKey) {
-                this.player.anims.play(jumpKey, true);
-            }
-        } else if (moving) {
-            if (this.player.anims.currentAnim?.key !== walkKey) {
-                this.player.anims.play(walkKey, true);
-            }
-        } else {
-            if (this.player.anims.currentAnim?.key !== idleKey) {
-                this.player.anims.play(idleKey, true);
-            }
-        }
-
-        // Reiniciar si el jugador cae
-        if (this.player.y > 800)
-        {
-            this.resetPlayerPosition();
-        }
-
-        // Flip horizontal de duendes según dirección de movimiento
-        this.enemies.children.iterate((e: any) => {
-            const s = e as Phaser.Physics.Arcade.Sprite;
-            if (s.body) s.setFlipX((s.body as any).velocity.x < 0);
-            return true;
-        });
-        
-        // Verificar victoria (nunca más de una vez)
-        if (this.coins.countActive(true) === 0 && !this.gameWon)
-        {
-            this.gameWon = true;
-
-            // Bonus por completar el nivel
-            this.score += 100;
-            this.scoreText.setText('Puntuación: ' + this.score);
-
-            if (this.levelIndex >= 3)
-            {
-                // Fin de la partida tras el jefe
-                this.registry.set('finalScore', this.score);
-                this.add.text(512, 384, '¡GANASTE!', {
-                    fontSize: '64px', color: '#00ff00', stroke: '#000000', strokeThickness: 4
-                }).setOrigin(0.5);
-                Sfx.win(this);
-                this.time.delayedCall(2500, () => { this.scene.start('GameOver'); });
-            }
-            else
-            {
-                this.levelComplete = true;
-                this.invincible = true;
-                Sfx.win(this);
-                this.add.text(512, 120, 'Elige una puerta', { fontSize: '40px', color: '#ffff00', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
-                // Retrasar un frame para asegurar que colisionadores/plataformas estén listos
-                this.time.delayedCall(50, () => this.spawnDoors());
-            }
-        }
-    }
-
-    private floatText(x: number, y: number, msg: string, color = '#ffff00')
-    {
-        const t = this.add.text(x, y, msg, { fontSize: '20px', color, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5);
-        this.tweens.add({ targets: t, y: y - 30, alpha: 0, duration: 700, onComplete: () => t.destroy() });
-    }
-
-    collectPowerUp(_player: any, pu: any)
-    {
-        const type = pu.getData('ptype');
-        pu.disableBody(true, true);
-        Sfx.powerUp(this);
-
-        // mini destello donde estaba el power-up
-        const flash = this.add.rectangle(pu.x, pu.y, 10, 10, 0xffffff, 0.9).setDepth(999);
-        this.tweens.add({ targets: flash, scaleX: 6, scaleY: 6, alpha: 0, duration: 220, onComplete: () => flash.destroy() });
-
-        switch (type) {
-            case 'life':
-                this.lives += 1;
-                this.livesText.setText('Vidas: ' + this.lives);
-                this.floatText(pu.x, pu.y, '+1 Vida', '#2ecc71');
-                break;
-            case 'speed':
-                this.floatText(pu.x, pu.y, 'Velocidad +', '#3498db');
-                this.speedX = 450;
-                this.jumpV = -700;
-                this.player.setTint(0x3498db);
-                // pulso corto en el player
-                this.tweens.add({ targets: this.player, scaleX: 1.06, scaleY: 1.06, yoyo: true, duration: 120 });
-                this.time.delayedCall(5000, () => {
-                    this.speedX = 300;
-                    this.jumpV = -600;
-                    this.player.clearTint();
-                });
-                break;
-            case 'inv':
-                this.floatText(pu.x, pu.y, 'Invencible', '#f1c40f');
-                this.invincible = true;
-                this.player.setTint(0xf1c40f);
-                // aura rápida
-                const aura = this.add.circle(this.player.x, this.player.y, 22, 0xffff66, 0.2).setDepth(1).setBlendMode(Phaser.BlendModes.ADD);
-                const follow = this.time.addEvent({ delay: 16, loop: true, callback: () => aura.setPosition(this.player.x, this.player.y) });
-                this.tweens.add({ targets: aura, alpha: 0.35, yoyo: true, repeat: -1, duration: 300 });
-                this.time.delayedCall(4000, () => {
-                    this.invincible = false;
-                    this.player.clearTint();
-                    aura.destroy();
-                    follow.remove(false);
-                });
-                break;
-        }
-    }
-
-    createPowerUps()
-    {
-        this.powerUps = this.physics.add.group();
-
-        const items = [
-            { x: 500, y: 520, key: 'pu_speed_sheet', anim: 'pu_speed_idle', type: 'speed' },
-            { x: 850, y: 370, key: 'pu_inv_sheet', anim: 'pu_inv_idle', type: 'inv' },
-            { x: 150, y: 120, key: 'pu_life_sheet', anim: 'pu_life_idle', type: 'life' }
-        ];
-
-        items.forEach(i => {
-            const pu = this.powerUps.create(i.x, i.y, i.key, 0) as Phaser.Physics.Arcade.Sprite;
-            pu.setBounce(0.2);
-            pu.setCollideWorldBounds(true);
-            pu.setData('ptype', i.type);
-            pu.setScale(1);
-            pu.play(i.anim);
-            pu.body!.setSize(16, 16).setOffset(4, 4);
-            this.tweens.add({ targets: pu, y: pu.y - 2, yoyo: true, repeat: -1, duration: 700, ease: 'Sine.inOut' });
-            // Sin tint: respetar color del asset
-        });
-    }
-
-    collectCoin(_player: any, coin: any)
-    {
-        // Crear efecto de partículas en la posición de la moneda
-        const particles = this.add.particles(coin.x, coin.y, 'coin_sheet', {
-            speed: { min: 50, max: 100 },
-            scale: { start: 0.5, end: 0 },
-            lifespan: 300,
-            quantity: 5
-        });
-        
-        // Eliminar el efecto después de un tiempo
-        this.time.delayedCall(300, () => {
-            particles.destroy();
-        });
-        
-        coin.disableBody(true, true);
-        this.score += 10;
-        this.scoreText.setText('Puntuación: ' + this.score);
-        
-        // Actualizar contador de monedas
-        const coinsRemaining = this.coins.countActive(true);
-        this.coinsText.setText(`Monedas: ${coinsRemaining}/8`);
-
-        Sfx.coin(this);
-
-        // Reproducir animación de "pick"
-        const pickKey = this.heroKey === 'hero_speed' ? 'pick_speed' :
-                        this.heroKey === 'hero_tank' ? 'pick_tank' : 'pick_jump';
-        const idleKey = this.heroKey === 'hero_speed' ? 'idle_speed' :
-                        this.heroKey === 'hero_tank' ? 'idle_tank' : 'idle_jump';
-
-        if (this.player.body!.touching.down) {
-            this.player.anims.play(pickKey);
-            this.player.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
-                this.player.anims.play(idleKey, true);
-            });
-        }
-    }
-
-    hitEnemy(_player: any, _enemy: any)
-    {
-        if (this.invincible) {
-            return;
-        }
-        Sfx.hit(this);
-        // Efecto de vibración de la cámara
-        this.cameras.main.shake(500, 0.02);
-        
-        // Efecto visual de daño (parpadeo del jugador)
-        this.player.setTint(0xff0000);
-        this.time.delayedCall(200, () => {
-            this.player.clearTint();
-        });
-        
-        this.lives--;
-        this.livesText.setText('Vidas: ' + this.lives);
-        
-        if (this.lives <= 0)
-        {
-            this.gameOver();
-        }
-        else
-        {
-            this.resetPlayerPosition();
-        }
-    }
-
-    resetPlayerPosition()
-    {
-        this.player.setPosition(100, 700);
-        this.player.setVelocity(0, 0);
-    }
-
-    gameOver()
-    {
-        // Guardar puntuación final
-        this.registry.set('finalScore', this.score);
-
-        Sfx.gameOver(this);
-
-        this.add.text(512, 384, 'GAME OVER', {
-            fontSize: '64px',
-            color: '#ff0000',
-            stroke: '#000000',
-            strokeThickness: 4
-        }).setOrigin(0.5);
-        
-        this.time.delayedCall(3000, () => {
-            this.scene.start('GameOver');
-        });
-    }
-
-    changeScene ()
-    {
-        this.scene.start('GameOver');
-    }
-
-    private getPathChoice(): 'A' | 'B'
-    {
-        if (this.levelIndex === 1) return 'A';
-        const idx = this.levelIndex - 2;
-        const c = this.path.charAt(idx);
-        return c === 'B' ? 'B' : 'A';
-    }
-
-    private levelLayoutA() {
-        this.platforms.create(200, 650, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(500, 550, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(800, 450, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(200, 350, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(600, 250, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(100, 150, 'platform').setScale(1.5, 1).refreshBody();
-        this.platforms.create(900, 150, 'platform').setScale(1.5, 1).refreshBody();
-    }
-    private levelLayoutA2() {
-        this.platforms.create(220, 620, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(420, 520, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(680, 420, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(820, 320, 'platform').setScale(1.5, 1).refreshBody();
-        this.platforms.create(512, 240, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(150, 180, 'platform').setScale(1.5, 1).refreshBody();
-        this.platforms.create(900, 180, 'platform').setScale(1.5, 1).refreshBody();
-    }
-    private levelLayoutB2() {
-        this.platforms.create(300, 600, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(520, 540, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(740, 480, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(900, 360, 'platform').setScale(1.5, 1).refreshBody();
-        this.platforms.create(620, 260, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(420, 200, 'platform').setScale(1.5, 1).refreshBody();
-        this.platforms.create(200, 160, 'platform').setScale(1.5, 1).refreshBody();
-    }
-    private levelLayoutA3() {
-        this.platforms.create(250, 560, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(500, 460, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(750, 360, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(300, 260, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(600, 160, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(900, 160, 'platform').setScale(1.5, 1).refreshBody();
-    }
-    private levelLayoutB3() {
-        this.platforms.create(200, 600, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(450, 520, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(700, 420, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(900, 300, 'platform').setScale(1.5, 1).refreshBody();
-        this.platforms.create(550, 220, 'platform').setScale(2, 1).refreshBody();
-        this.platforms.create(300, 180, 'platform').setScale(1.5, 1).refreshBody();
-    }
-
-    private spawnDoors() {
-        // Evitar duplicados si ya existen
-        if (this.doors && this.doors.getChildren().length > 0) return;
-        this.doors = this.physics.add.staticGroup();
-
-        const choice = this.getPathChoice();
-        const [xA, xB] = this.getDoorXs(this.levelIndex, choice);
-        const yA = this.getDoorYForX(xA);
-        const yB = this.getDoorYForX(xB);
-
-        const doorA = this.doors.create(xA, yA, 'door') as Phaser.Physics.Arcade.Image;
-        const doorB = this.doors.create(xB, yB, 'door') as Phaser.Physics.Arcade.Image;
-        doorA.setDepth(80);
-        doorB.setDepth(80);
-
-        // Glow + flecha
-        const glowA = this.add.image(xA, yA - 10, 'door_glow').setDepth(70).setAlpha(0.7);
-        glowA.setBlendMode(Phaser.BlendModes.ADD);
-        const glowB = this.add.image(xB, yB - 10, 'door_glow').setDepth(70).setAlpha(0.7);
-        glowB.setBlendMode(Phaser.BlendModes.ADD);
-        this.tweens.add({ targets: [glowA, glowB], alpha: 0.4, yoyo: true, repeat: -1, duration: 700 });
-
-        const arrowA = this.add.image(xA, yA - 40, 'door_arrow').setDepth(90);
-        const arrowB = this.add.image(xB, yB - 40, 'door_arrow').setDepth(90);
-        this.tweens.add({ targets: [arrowA, arrowB], y: '+=8', yoyo: true, repeat: -1, duration: 500, ease: 'Sine.easeInOut' });
-
-        this.physics.add.overlap(this.player, doorA, () => this.enterDoor('A'));
-        this.physics.add.overlap(this.player, doorB, () => this.enterDoor('B'));
-    }
-
-    private getDoorXs(level: number, choice: 'A' | 'B'): [number, number] {
-        if (level === 1) return [100, 900];
-        if (level === 2) return choice === 'A' ? [420, 820] : [520, 900];
-        return [300, 740];
-    }
-
-    private getDoorYForX(x: number): number {
-        let y = 420; // fallback visible
-        const children = this.platforms.getChildren() as any[];
-        children.forEach((obj: any) => {
-            if (!obj || typeof obj.x !== 'number' || typeof obj.y !== 'number') return;
-            const w = (obj.displayWidth ?? 100);
-            const h = (obj.displayHeight ?? 20);
-            const halfW = w / 2;
-            if (x >= obj.x - halfW && x <= obj.x + halfW) {
-                const top = obj.y - h / 2;
-                const candidate = top - 24; // center of 48px door
-                if (candidate < y) y = candidate;
-            }
-        });
-        return y;
-    }
-
-    private enterDoor(choice: 'A' | 'B') {
-        if (!this.levelComplete) return;
-        const nextIndex = this.levelIndex + 1;
-        const nextPath = this.path + choice;
-        this.registry.set('levelIndex', nextIndex);
-        this.registry.set('path', nextPath);
-        this.registry.set('carryScore', this.score);
-        this.registry.set('carryLives', this.lives);
-        this.scene.restart();
-    }
-
-    private spawnBoss() {
-        const boss = this.physics.add.sprite(700, 300, 'boss_troll_sheet', 0) as Phaser.Physics.Arcade.Sprite;
-        this.boss = boss as any;
-        boss.setImmovable(true).setCollideWorldBounds(true);
-        boss.setScale(1.2); // Escala ligeramente reducida para el troll (es más grande)
-        this.physics.add.collider(boss, this.platforms);
-        this.physics.add.overlap(this.player, boss, this.hitEnemy, undefined, this);
-        boss.play('troll_idle');
-
-        this.projectiles = this.physics.add.group();
-
-        // Disparo cada 1.5s con anim de casteo
-        this.shootTimer = this.time.addEvent({
-            delay: 1500, loop: true, callback: () => {
-                if (!this.boss) return;
-                boss.play('troll_cast');
-                // Lanza el proyectil cuando termina el cast
-                boss.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
-                    if (!this.boss) return;
-                    const proj = this.projectiles!.create(boss.x, boss.y, 'projectile') as Phaser.Physics.Arcade.Image;
-                    const angle = Phaser.Math.Angle.Between(boss.x, boss.y, this.player.x, this.player.y);
-                    const speed = 220;
-                    proj.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
-                    boss.play('troll_idle'); // vuelta a idle
-                });
-            }
-        });
-
-        // Teletransporte cada 4s con anim portal
-        this.teleportTimer = this.time.addEvent({
-            delay: 4000, loop: true, callback: () => {
-                if (!this.boss) return;
-                boss.play('troll_portal');
-                boss.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
-                    if (!this.boss) return;
-                    const spots = [ {x: 250, y: 300}, {x: 750, y: 260}, {x: 500, y: 200} ];
-                    const s = Phaser.Utils.Array.GetRandom(spots);
-                    boss.setPosition(s.x, s.y);
-                    this.cameras.main.flash(150, 255, 255, 255);
-                    boss.play('troll_idle');
-                });
-            }
-        });
-    }
-}
-</file>
-
-<file path="src/game/scenes/MainMenu.ts">
-import { GameObjects, Scene } from 'phaser';
-import { EventBus } from '../EventBus';
-import { Sfx } from '../audio/Sfx';
-
-export class MainMenu extends Scene
-{
-    background: GameObjects.Image;
-    intro: GameObjects.Image;
-    title: GameObjects.Text;
-    logoTween: Phaser.Tweens.Tween | null;
-    // Pantalla principal limpia, selección se mueve a CharacterSelect
-
-    constructor ()
-    {
-        super('MainMenu');
-    }
-
-    create ()
-    {
-        this.background = this.add.image(512, 384, 'background');
-
-        // Agregar imagen de intro como portada del juego, centrada y escalada
-        this.intro = this.add.image(512, 500, 'intro')
-            .setDepth(100); // Escalar un poco para que ocupe más espacio
-
-        // // Agregar efecto de parpadeo (fade in/out suave)
-        // this.tweens.add({
-        //     targets: this.intro,
-        //     alpha: { from: 0.6, to: 1.0 },
-        //     duration: 1500,
-        //     yoyo: true,
-        //     repeat: -1,
-        //     ease: 'Sine.inOut'
-        // });
-
-        this.title = this.add.text(512, 350, 'Goblins & Heroes', {
-            fontFamily: 'Arial Black', fontSize: 48, color: '#ffffff',
-            stroke: '#000000', strokeThickness: 8,
-            align: 'center'
-        }).setOrigin(0.5).setDepth(100);
-
-        // Instrucciones del juego
-        this.add.text(512, 450, 'Usa las flechas para moverte\nFlecha arriba o Espacio para saltar\nRecoge todas las monedas\nEvita los enemigos rojos', {
-            fontFamily: 'Arial', fontSize: 24, color: '#ffffff',
-            stroke: '#000000', strokeThickness: 4,
-            align: 'center'
-        }).setOrigin(0.5).setDepth(100);
-
-        // Botón para ir al selector de personajes
-        this.add.text(512, 620, 'Haz clic para elegir personaje', {
-            fontFamily: 'Arial Black', fontSize: 32, color: '#ffff00',
-            stroke: '#000000', strokeThickness: 6,
-            align: 'center'
-        }).setOrigin(0.5).setDepth(100);
-
-        // Hacer la pantalla clickeable para iniciar el juego
-        this.input.once('pointerdown', () => {
-            Sfx.click(this);
-            this.changeScene();
-        });
-
-        EventBus.emit('current-scene-ready', this);
-    }
-    
-    changeScene ()
-    {
-        if (this.logoTween)
-        {
-            this.logoTween.stop();
-            this.logoTween = null;
-        }
-        this.scene.start('CharacterSelect');
-    }
-
-    moveLogo (vueCallback: ({ x, y }: { x: number, y: number }) => void)
-    {
-        if (this.logoTween)
-        {
-            if (this.logoTween.isPlaying())
-            {
-                this.logoTween.pause();
-            }
-            else
-            {
-                this.logoTween.play();
-            }
-        } 
-        else
-        {
-            this.logoTween = this.tweens.add({
-                targets: this.intro,
-                x: { value: 750, duration: 3000, ease: 'Back.easeInOut' },
-                y: { value: 80, duration: 1500, ease: 'Sine.easeOut' },
-                yoyo: true,
-                repeat: -1,
-                onUpdate: () => {
-                    if (vueCallback)
-                    {
-                        vueCallback({
-                            x: Math.floor(this.intro.x),
-                            y: Math.floor(this.intro.y)
-                        });
-                    }
-                }
-            });
-        }
-    }
-
-    // Selección movida a CharacterSelect
-}
-</file>
-
-<file path="src/game/main.ts">
-import { Boot } from './scenes/Boot';
-import { GameOver } from './scenes/GameOver';
-import { Game as MainGame } from './scenes/Game';
-import { MainMenu } from './scenes/MainMenu';
-import { CharacterSelect } from './scenes/CharacterSelect';
-import { AUTO, Game } from 'phaser';
-import { Preloader } from './scenes/Preloader';
-
-// Find out more information about the Game Config at:
-// https://docs.phaser.io/api-documentation/typedef/types-core#gameconfig
-const config: Phaser.Types.Core.GameConfig = {
-    type: AUTO,
-    width: 1024,
-    height: 768,
-    parent: 'game-container',
-    backgroundColor: '#028af8',
-    pixelArt: true,
-    physics: {
-        default: 'arcade',
-        arcade: {
-            gravity: { y: 800, x: 0 },
-            debug: false
-        }
+    "name": "goblins-and-heroes",
+    "description": "Goblins & Heroes — juego de plataformas 2D en Phaser + Vue + TypeScript",
+    "version": "1.0.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/josantos/game-vuephaser.git"
     },
-    scene: [
-        Boot,
-        Preloader,
-        MainMenu,
-        CharacterSelect,
-        MainGame,
-        GameOver
-    ]
-};
+    "author": "José Santos",
+    "license": "MIT",
+    "keywords": [
+        "phaser",
+        "phaser3",
+        "typescript",
+        "vue",
+        "vite",
+        "plataformas",
+        "juego",
+        "2d"
+    ],
+    "scripts": {
+        "dev": "node log.js dev & vite --config vite/config.dev.mjs",
+        "build": "node log.js build & vite build --config vite/config.prod.mjs",
+        "dev-nolog": "vite --config vite/config.dev.mjs",
+        "build-nolog": "vite build --config vite/config.prod.mjs",
+        "typecheck": "vue-tsc --noEmit"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "dependencies": {
+        "phaser": "^3.90.0",
+        "vue": "3.5.13"
+    },
+    "devDependencies": {
+        "@types/node": "^20.11.20",
+        "terser": "^5.31.0",
+        "@vitejs/plugin-vue": "^5.2.2",
+        "@vue/tsconfig": "^0.7.0",
+        "typescript": "~5.7.2",
+        "vite": "^6.3.1",
+        "vue-tsc": "^2.2.8"
+    }
+}
+</file>
 
-const StartGame = (parent: string) => {
+<file path="pnpm-workspace.yaml">
+onlyBuiltDependencies:
+  - esbuild
+</file>
 
-    return new Game({ ...config, parent });
-
+<file path="public/style.css">
+body {
+    margin: 0;
+    padding: 0;
+    color: rgba(255, 255, 255, 0.87);
+    background-color: #000000; 
+    font-family: Arial, Helvetica, sans-serif;
 }
 
-export default StartGame;
+#app {
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#game-container canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges; /* fallback */
+}
+
+.spritePosition {
+    margin: 10px 0 0 10px;
+    font-size: 0.8em;
+}
+
+.button {
+    width: 140px;
+    margin: 10px;
+    padding: 10px;
+    background-color: #000000;
+    color: rgba(255, 255, 255, 0.87);
+    border: 1px solid rgba(255, 255, 255, 0.87);
+    cursor: pointer;
+    transition: all 0.3s;
+
+    &:hover {
+        border: 1px solid #0ec3c9;
+        color: #0ec3c9;
+    }
+
+    &:active {
+        background-color: #0ec3c9;
+    }
+
+    /* Disabled styles */
+    &:disabled {
+        cursor: not-allowed;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        color: rgba(255, 255, 255, 0.3);
+    }
+}
 </file>
 
 <file path="README.md">
@@ -3018,51 +1654,2114 @@ The Phaser logo and characters are &copy; 2011 - 2025 Phaser Studio Inc.
 All rights reserved.
 </file>
 
-<file path="package.json">
+<file path="src/App.vue">
+<script setup lang="ts">
+import Phaser from 'phaser';
+import { ref, type ComponentPublicInstance } from 'vue';
+import type { MainMenu } from './game/scenes/MainMenu';
+import PhaserGame from './PhaserGame.vue';
+
+//  Typed reference to PhaserGame public instance (exposed props)
+type PhaserGamePublic = ComponentPublicInstance<{
+  scene: Phaser.Scene | null;
+  game: Phaser.Game | null;
+}>;
+
+// The sprite can only be moved in the MainMenu Scene
+const canMoveSprite = ref<boolean>(true);
+
+//  References to the PhaserGame component (game and scene are exposed)
+const phaserRef = ref<PhaserGamePublic | null>(null);
+const spritePosition = ref<{ x: number; y: number }>({ x: 0, y: 0 });
+
+const changeScene = () => {
+  const scene = phaserRef.value?.scene as (MainMenu | null | undefined);
+  if (scene && typeof (scene as any).changeScene === 'function') {
+    scene.changeScene();
+  }
+};
+
+const moveSprite = () => {
+  const scene = phaserRef.value?.scene as (MainMenu | null | undefined);
+  if (scene && typeof (scene as any).moveLogo === 'function') {
+    scene.moveLogo(({ x, y }) => {
+      spritePosition.value = { x, y };
+    });
+  }
+};
+
+const addSprite = () => {
+  const scene = phaserRef.value?.scene as Phaser.Scene | null | undefined;
+  if (scene) {
+    const x = Phaser.Math.Between(64, scene.scale.width - 64);
+    const y = Phaser.Math.Between(64, scene.scale.height - 64);
+    const star = scene.add.sprite(x, y, 'star');
+    scene.add.tween({
+      targets: star,
+      duration: 500 + Math.random() * 1000,
+      alpha: 0,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+};
+
+// Event emitted from the PhaserGame component
+const currentScene = (scene: Phaser.Scene) => {
+  canMoveSprite.value = (scene.scene.key !== 'MainMenu');
+};
+
+</script>
+
+<template>
+    <PhaserGame ref="phaserRef" @current-active-scene="currentScene" />
+    <div>
+        <div>
+            <button class="button" @click="changeScene">Change Scene</button>
+        </div>
+        <div>
+            <button :disabled="canMoveSprite" class="button" @click="moveSprite">Toggle Movement</button>
+        </div>
+        <div class="spritePosition">Sprite Position:
+            <pre>{{ spritePosition }}</pre>
+        </div>
+        <div>
+            <button class="button" @click="addSprite">Add New Sprite</button>
+        </div>
+    </div>
+</template>
+</file>
+
+<file path="src/game/audio/Sfx.ts">
+import { Scene } from 'phaser';
+
+export type WaveType = OscillatorType;
+
+// Simple WebAudio SFX helper using Phaser's audio context
+export class Sfx {
+  static tone(
+    scene: Scene,
+    freq: number,
+    duration = 0.15,
+    type: WaveType = 'sine',
+    volume = 0.2
+  ) {
+    // Use Phaser WebAudio context when available
+    // @ts-expect-error Phaser typing for sound.context exists at runtime
+    const ctx: AudioContext | undefined = scene.sound?.context as any;
+    if (!ctx || (ctx as any).state === 'closed') return; // Fallback: skip when no WebAudio or closed
+
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+
+    // Quick attack, short decay envelope
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(volume, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(t0);
+    osc.stop(t0 + duration + 0.02);
+  }
+
+  static click(scene: Scene) {
+    this.tone(scene, 600, 0.05, 'square', 0.15);
+  }
+
+  static jump(scene: Scene) {
+    this.tone(scene, 420, 0.12, 'square', 0.2);
+  }
+
+  static coin(scene: Scene) {
+    // Two short blips
+    this.tone(scene, 880, 0.06, 'triangle', 0.22);
+    setTimeout(() => this.tone(scene, 1320, 0.07, 'triangle', 0.2), 50);
+  }
+
+  static hit(scene: Scene) {
+    this.tone(scene, 180, 0.2, 'sawtooth', 0.25);
+  }
+
+  static win(scene: Scene) {
+    const notes = [660, 880, 990, 1320];
+    notes.forEach((f, i) => setTimeout(() => this.tone(scene, f, 0.08, 'triangle', 0.2), i * 90));
+  }
+
+  static gameOver(scene: Scene) {
+    this.tone(scene, 300, 0.18, 'sine', 0.22);
+    setTimeout(() => this.tone(scene, 220, 0.22, 'sine', 0.22), 160);
+  }
+
+  static powerUp(scene: Scene) {
+    const notes = [523, 659, 784];
+    notes.forEach((f, i) => setTimeout(() => this.tone(scene, f, 0.06, 'square', 0.18), i * 70));
+  }
+}
+</file>
+
+<file path="src/game/boss/BossController.ts">
+import { Scene } from 'phaser';
+
+export class BossController {
+  private scene: Scene;
+  private boss?: Phaser.Physics.Arcade.Sprite;
+  private projectiles?: Phaser.Physics.Arcade.Group;
+  private shootTimer?: Phaser.Time.TimerEvent;
+  private teleportTimer?: Phaser.Time.TimerEvent;
+
+  constructor(scene: Scene) {
+    this.scene = scene;
+  }
+
+  getProjectiles(): Phaser.Physics.Arcade.Group | undefined {
+    return this.projectiles;
+  }
+
+  getBoss(): Phaser.Physics.Arcade.Sprite | undefined {
+    return this.boss;
+  }
+
+  start(platforms: Phaser.Physics.Arcade.StaticGroup, player: Phaser.Physics.Arcade.Sprite): void {
+    const boss = this.scene.physics.add.sprite(700, 300, 'boss_troll_sheet', 0) as Phaser.Physics.Arcade.Sprite;
+    this.boss = boss;
+    boss.setCollideWorldBounds(true);
+    boss.setScale(1.2);
+    const body = boss.body as Phaser.Physics.Arcade.Body;
+    // Ajustar hitbox para asegurar colisión robusta con plataformas
+    body.setSize(48, 56, true);
+    body.setBounce(0, 0);
+    body.setMaxVelocity(400, 1000);
+    this.scene.physics.add.collider(boss, platforms);
+    this.scene.physics.add.overlap(player, boss, (_p: any, _b: any) => {
+      // Delegate handling to scene via event to keep controller generic
+      this.scene.events.emit('boss-hit-player');
+    });
+    boss.play('troll_idle');
+
+    this.projectiles = this.scene.physics.add.group();
+
+    this.shootTimer = this.scene.time.addEvent({
+      delay: 1500,
+      loop: true,
+      callback: () => {
+        if (!this.boss) return;
+        boss.play('troll_cast');
+        boss.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+          if (!this.boss || !this.projectiles) return;
+          const proj = this.projectiles.create(boss.x, boss.y, 'projectile') as Phaser.Physics.Arcade.Image;
+          const angle = Phaser.Math.Angle.Between(boss.x, boss.y, player.x, player.y);
+          const speed = 220;
+          proj.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+          boss.play('troll_idle');
+        });
+      }
+    });
+
+    this.teleportTimer = this.scene.time.addEvent({
+      delay: 4000,
+      loop: true,
+      callback: () => {
+        if (!this.boss) return;
+        boss.play('troll_portal');
+        boss.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+          if (!this.boss) return;
+          const spots = [ {x: 250, y: 300}, {x: 750, y: 260}, {x: 500, y: 200} ];
+          const s = Phaser.Utils.Array.GetRandom(spots);
+          boss.setPosition(s.x, s.y);
+          const b = boss.body as Phaser.Physics.Arcade.Body;
+          // Resetear velocidad tras teletransporte para evitar atravesar por alta VY
+          b.setVelocity(0, 0);
+          this.scene.cameras.main.flash(150, 255, 255, 255);
+          boss.play('troll_idle');
+        });
+      }
+    });
+  }
+
+  dispose(): void {
+    try { this.shootTimer?.remove(false); } catch {}
+    try { this.teleportTimer?.remove(false); } catch {}
+    try { this.projectiles?.destroy(true); } catch {}
+    try { this.boss?.destroy(); } catch {}
+    this.shootTimer = undefined;
+    this.teleportTimer = undefined;
+    this.projectiles = undefined;
+    this.boss = undefined;
+  }
+}
+</file>
+
+<file path="src/game/core/Hero.ts">
+export type HeroKey = 'hero_speed' | 'hero_jump' | 'hero_tank';
+
+export interface HeroStats {
+  speedX: number;
+  jumpV: number;
+  lives: number;
+}
+
+export class HeroStatsService {
+  static getStats(key: HeroKey): HeroStats {
+    switch (key) {
+      case 'hero_speed':
+        return { speedX: 420, jumpV: -600, lives: 2 };
+      case 'hero_tank':
+        return { speedX: 250, jumpV: -600, lives: 4 };
+      case 'hero_jump':
+      default:
+        return { speedX: 300, jumpV: -750, lives: 3 };
+    }
+  }
+
+  static getSheetKey(key: HeroKey): string {
+    if (key === 'hero_speed') return 'hero_speed_sheet';
+    if (key === 'hero_tank') return 'hero_tank_sheet';
+    return 'hero_jump_sheet';
+  }
+
+  static getLabel(key: HeroKey): string {
+    if (key === 'hero_speed') return 'Velocidad';
+    if (key === 'hero_tank') return 'Tanque';
+    return 'Salto';
+  }
+}
+</file>
+
+<file path="src/game/doors/DoorController.ts">
+import { Scene } from 'phaser';
+
+export class DoorController {
+  private scene: Scene;
+  private doors?: Phaser.Physics.Arcade.StaticGroup;
+
+  constructor(scene: Scene) {
+    this.scene = scene;
+  }
+
+  spawn(
+    player: Phaser.Physics.Arcade.Sprite,
+    platforms: Phaser.Physics.Arcade.StaticGroup,
+    levelIndex: number,
+    pathChoice: 'A' | 'B',
+    onEnter: (choice: 'A' | 'B') => void
+  ): void {
+    if (this.doors && this.doors.getChildren().length > 0) return;
+    this.doors = this.scene.physics.add.staticGroup();
+
+    const [xA, xB] = this.getDoorXs(levelIndex, pathChoice);
+    const yA = this.getDoorYForX(platforms, xA);
+    const yB = this.getDoorYForX(platforms, xB);
+
+    const doorA = this.doors.create(xA, yA, 'door') as Phaser.Physics.Arcade.Image;
+    const doorB = this.doors.create(xB, yB, 'door') as Phaser.Physics.Arcade.Image;
+    doorA.setDepth(80);
+    doorB.setDepth(80);
+
+    const glowA = this.scene.add.image(xA, yA - 10, 'door_glow').setDepth(70).setAlpha(0.7);
+    glowA.setBlendMode(Phaser.BlendModes.ADD);
+    const glowB = this.scene.add.image(xB, yB - 10, 'door_glow').setDepth(70).setAlpha(0.7);
+    glowB.setBlendMode(Phaser.BlendModes.ADD);
+    this.scene.tweens.add({ targets: [glowA, glowB], alpha: 0.4, yoyo: true, repeat: -1, duration: 700 });
+
+    const arrowA = this.scene.add.image(xA, yA - 40, 'door_arrow').setDepth(90);
+    const arrowB = this.scene.add.image(xB, yB - 40, 'door_arrow').setDepth(90);
+    this.scene.tweens.add({ targets: [arrowA, arrowB], y: '+=8', yoyo: true, repeat: -1, duration: 500, ease: 'Sine.easeInOut' });
+
+    this.scene.physics.add.overlap(player, doorA, () => onEnter('A'));
+    this.scene.physics.add.overlap(player, doorB, () => onEnter('B'));
+  }
+
+  private getDoorXs(level: number, choice: 'A' | 'B'): [number, number] {
+    if (level === 1) return [100, 900];
+    if (level === 2) return choice === 'A' ? [420, 820] : [520, 900];
+    return [300, 740];
+  }
+
+  private getDoorYForX(platforms: Phaser.Physics.Arcade.StaticGroup, x: number): number {
+    let y = 420;
+    const children = platforms.getChildren() as any[];
+    children.forEach((obj: any) => {
+      if (!obj || typeof obj.x !== 'number' || typeof obj.y !== 'number') return;
+      const w = (obj.displayWidth ?? 100);
+      const h = (obj.displayHeight ?? 20);
+      const halfW = w / 2;
+      if (x >= obj.x - halfW && x <= obj.x + halfW) {
+        const top = obj.y - h / 2;
+        const candidate = top - 24;
+        if (candidate < y) y = candidate;
+      }
+    });
+    return y;
+  }
+}
+</file>
+
+<file path="src/game/EventBus.ts">
+import { Events } from 'phaser';
+
+// Used to emit events between components, HTML and Phaser scenes
+export const EventBus = new Events.EventEmitter();
+</file>
+
+<file path="src/game/main.ts">
+import { Boot } from './scenes/Boot';
+import { GameOver } from './scenes/GameOver';
+import { Game as MainGame } from './scenes/Game';
+import { MainMenu } from './scenes/MainMenu';
+import { CharacterSelect } from './scenes/CharacterSelect';
+import { LevelSelectDev } from './scenes/LevelSelectDev';
+import { AUTO, Game } from 'phaser';
+import { Preloader } from './scenes/Preloader';
+
+// Find out more information about the Game Config at:
+// https://docs.phaser.io/api-documentation/typedef/types-core#gameconfig
+const config: Phaser.Types.Core.GameConfig = {
+    type: AUTO,
+    width: 1024,
+    height: 768,
+    parent: 'game-container',
+    backgroundColor: '#028af8',
+    pixelArt: true,
+    render: { antialias: false },
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 800, x: 0 },
+            debug: false
+        }
+    },
+    scene: [
+        Boot,
+        Preloader,
+        MainMenu,
+        CharacterSelect,
+        LevelSelectDev,
+        MainGame,
+        GameOver
+    ]
+};
+
+const StartGame = (parent: string) => {
+
+    return new Game({ ...config, parent });
+
+}
+
+export default StartGame;
+</file>
+
+<file path="src/game/scenes/Boot.ts">
+import { Scene } from 'phaser';
+
+export class Boot extends Scene
 {
-    "name": "goblins-and-heroes",
-    "description": "Goblins & Heroes — juego de plataformas 2D en Phaser + Vue + TypeScript",
-    "version": "1.0.0",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/josantos/game-vuephaser.git"
-    },
-    "author": "José Santos",
-    "license": "MIT",
-    "keywords": [
-        "phaser",
-        "phaser3",
-        "typescript",
-        "vue",
-        "vite",
-        "plataformas",
-        "juego",
-        "2d"
-    ],
-    "scripts": {
-        "dev": "node log.js dev & vite --config vite/config.dev.mjs",
-        "build": "node log.js build & vite build --config vite/config.prod.mjs",
-        "dev-nolog": "vite --config vite/config.dev.mjs",
-        "build-nolog": "vite build --config vite/config.prod.mjs",
-        "typecheck": "vue-tsc --noEmit"
-    },
-    "engines": {
-        "node": ">=18"
-    },
-    "dependencies": {
-        "phaser": "^3.90.0",
-        "vue": "3.5.13"
-    },
-    "devDependencies": {
-        "@types/node": "^20.11.20",
-        "terser": "^5.31.0",
-        "@vitejs/plugin-vue": "^5.2.2",
-        "@vue/tsconfig": "^0.7.0",
-        "typescript": "~5.7.2",
-        "vite": "^6.3.1",
-        "vue-tsc": "^2.2.8"
+    constructor ()
+    {
+        super('Boot');
+    }
+
+    preload ()
+    {
+        //  The Boot Scene is typically used to load in any assets you require for your Preloader, such as a game logo or background.
+        //  The smaller the file size of the assets, the better, as the Boot Scene itself has no preloader.
+
+        this.load.image('background', 'assets/bg.png');
+    }
+
+    create ()
+    {
+        this.scene.start('Preloader');
     }
 }
+</file>
+
+<file path="src/game/scenes/CharacterSelect.ts">
+import { Scene, GameObjects } from 'phaser';
+import { EventBus } from '../EventBus';
+import { Sfx } from '../audio/Sfx';
+
+type HeroKey = 'hero_speed' | 'hero_jump' | 'hero_tank';
+
+export class CharacterSelect extends Scene {
+  background!: GameObjects.Image;
+  title!: GameObjects.Text;
+  selected: HeroKey = 'hero_jump';
+  frames: Phaser.GameObjects.Rectangle[] = [];
+  imgs: Phaser.GameObjects.Image[] = [];
+  info!: Phaser.GameObjects.Text;
+  confirmBtn!: Phaser.GameObjects.Text;
+  backBtn!: Phaser.GameObjects.Text;
+
+  constructor() {
+    super('CharacterSelect');
+  }
+
+  create() {
+    this.background = this.add.image(512, 384, 'background');
+
+    this.title = this.add.text(512, 120, 'Selecciona tu héroe', {
+      fontFamily: 'Arial Black', fontSize: 48, color: '#ffffff',
+      stroke: '#000000', strokeThickness: 8, align: 'center'
+    }).setOrigin(0.5).setDepth(100);
+
+    try {
+      const saved = window.localStorage.getItem('selectedHero') as HeroKey | null;
+      if (saved) this.selected = saved;
+    } catch {}
+
+    this.layoutHeroes();
+    this.updateInfo();
+
+    this.confirmBtn = this.add.text(512, 650, 'Confirmar', {
+      fontFamily: 'Arial Black', fontSize: 36, color: '#00ff00', stroke: '#000000', strokeThickness: 6
+    }).setOrigin(0.5).setDepth(100).setInteractive({ useHandCursor: true });
+    this.confirmBtn.on('pointerdown', () => {
+      Sfx.click(this);
+      this.registry.set('selectedHero', this.selected);
+      // Reset de progreso de niveles al iniciar una nueva partida
+      this.registry.set('levelIndex', 1);
+      this.registry.set('path', '');
+      this.registry.set('carryScore', 0);
+      this.registry.set('carryLives', undefined);
+      try { window.localStorage.setItem('selectedHero', this.selected); } catch {}
+      this.scene.start('Game');
+    });
+
+    this.backBtn = this.add.text(100, 720, '← Volver', {
+      fontFamily: 'Arial', fontSize: 24, color: '#ffff00', stroke: '#000000', strokeThickness: 4
+    }).setOrigin(0, 1).setDepth(100).setInteractive({ useHandCursor: true });
+    this.backBtn.on('pointerdown', () => {
+      Sfx.click(this);
+      this.scene.start('MainMenu');
+    });
+
+    EventBus.emit('current-scene-ready', this);
+  }
+
+  private layoutHeroes() {
+    const defs: { key: HeroKey; sheet: string; label: string }[] = [
+      { key: 'hero_speed', sheet: 'hero_speed_sheet', label: 'Velocidad' },
+      { key: 'hero_jump', sheet: 'hero_jump_sheet', label: 'Salto' },
+      { key: 'hero_tank', sheet: 'hero_tank_sheet', label: 'Tanque' }
+    ];
+    const startX = 260;
+    const y = 360;
+    const gap = 260;
+
+    defs.forEach((h, i) => {
+      const x = startX + i * gap;
+      const frame = this.add.rectangle(x, y, 120, 120).setStrokeStyle(6, 0xffffff).setDepth(90);
+      const img = this.add.image(x, y - 10, h.sheet, 0).setScale(3).setInteractive({ useHandCursor: true }).setDepth(100);
+      this.add.text(x, y + 70, h.label, { fontFamily: 'Arial Black', fontSize: 22, color: '#ffffff', stroke: '#000000', strokeThickness: 4 }).setOrigin(0.5).setDepth(100);
+
+      img.on('pointerdown', () => {
+        Sfx.click(this);
+        this.selected = h.key;
+        try { window.localStorage.setItem('selectedHero', this.selected); } catch {}
+        this.updateFrames();
+        this.updateInfo();
+      });
+
+      this.frames.push(frame);
+      this.imgs.push(img);
+    });
+
+    this.updateFrames();
+  }
+
+  private updateFrames() {
+    const order: HeroKey[] = ['hero_speed', 'hero_jump', 'hero_tank'];
+    this.frames.forEach((f, idx) => {
+      const active = order[idx] === this.selected;
+      f.setStrokeStyle(6, active ? 0xffff00 : 0xffffff);
+    });
+  }
+
+  private updateInfo() {
+    const map: Record<HeroKey, { name: string; desc: string; stats: string }> = {
+      hero_speed: {
+        name: 'Velocidad',
+        desc: 'Se mueve más rápido, pero con menos vidas.',
+        stats: 'Velocidad: Alta | Salto: Medio | Vidas: 2'
+      },
+      hero_jump: {
+        name: 'Salto',
+        desc: 'Mayor altura de salto y balance general.',
+        stats: 'Velocidad: Media | Salto: Alto | Vidas: 3'
+      },
+      hero_tank: {
+        name: 'Tanque',
+        desc: 'Más resistencia con más vidas, menor velocidad.',
+        stats: 'Velocidad: Baja | Salto: Medio | Vidas: 4'
+      }
+    };
+    const i = map[this.selected];
+    if (!this.info) {
+      this.info = this.add.text(512, 500, `${i.name}\n${i.desc}\n${i.stats}`, {
+        fontFamily: 'Arial', fontSize: 22, color: '#ffffff', stroke: '#000000', strokeThickness: 4, align: 'center'
+      }).setOrigin(0.5).setDepth(100);
+    } else {
+      this.info.setText(`${i.name}\n${i.desc}\n${i.stats}`);
+    }
+  }
+}
+</file>
+
+<file path="src/game/scenes/Game.ts">
+import { EventBus } from '../EventBus';
+import { Sfx } from '../audio/Sfx';
+import { Scene } from 'phaser';
+import { HeroKey, HeroStatsService } from '../core/Hero';
+import { Hud } from '../ui/Hud';
+import { EnemySpawner } from '../spawners/EnemySpawner';
+import { CoinSpawner } from '../spawners/CoinSpawner';
+import { PowerUpSpawner } from '../spawners/PowerUpSpawner';
+import { BossController } from '../boss/BossController';
+import { DoorController } from '../doors/DoorController';
+
+export class Game extends Scene
+{
+    camera: Phaser.Cameras.Scene2D.Camera;
+    background: Phaser.GameObjects.Image;
+    heroKey: HeroKey = 'hero_jump';
+    levelIndex: number = 1;
+    path: string = '';
+    
+    // Elementos del juego
+    player!: Phaser.Physics.Arcade.Sprite;
+    platforms!: Phaser.Physics.Arcade.StaticGroup;
+    enemies!: Phaser.Physics.Arcade.Group;
+    coins!: Phaser.Physics.Arcade.Group;
+    powerUps!: Phaser.Physics.Arcade.Group;
+    cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+    spaceKey!: Phaser.Input.Keyboard.Key;
+    wasd!: { left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key; up: Phaser.Input.Keyboard.Key };
+    
+    // UI
+    hud!: Hud;
+    
+    // Variables del juego
+    score: number = 0;
+    lives: number = 3;
+    gameWon: boolean = false;
+    speedX: number = 300;
+    jumpV: number = -600;
+    invincible: boolean = false;
+    levelComplete: boolean = false;
+    bossCtrl?: BossController;
+    doorCtrl?: DoorController;
+    totalCoins: number = 0;
+
+    constructor ()
+    {
+        super('Game');
+    }
+
+    create ()
+    {
+        this.camera = this.cameras.main;
+        this.camera.setBackgroundColor(0x87CEEB); // Azul cielo
+        this.camera.roundPixels = true; // Evitar sub-pixel blur en pixel art
+
+        // Reset de estado de nivel al (re)entrar
+        this.gameWon = false;
+        this.levelComplete = false;
+        this.invincible = false;
+        try { this.doorCtrl = new DoorController(this); } catch {}
+        try { this.bossCtrl?.dispose(); } catch {}
+        this.bossCtrl = undefined;
+
+        // Selección de héroe
+        const sel = this.registry.get('selectedHero');
+        if (sel && (sel === 'hero_speed' || sel === 'hero_jump' || sel === 'hero_tank')) {
+            this.heroKey = sel;
+        }
+
+        // Estado de nivel y camino
+        const idx = this.registry.get('levelIndex');
+        this.levelIndex = typeof idx === 'number' ? idx : 1;
+        const p = this.registry.get('path');
+        this.path = typeof p === 'string' ? p : '';
+
+        const stats = HeroStatsService.getStats(this.heroKey);
+        this.speedX = stats.speedX;
+        this.jumpV = stats.jumpV;
+        this.lives = stats.lives;
+
+        // Continuidad de puntuación/vidas después de aplicar stats base
+        const carryScore = this.registry.get('carryScore');
+        if (typeof carryScore === 'number') this.score = carryScore;
+        const carryLives = this.registry.get('carryLives');
+        if (typeof carryLives === 'number') this.lives = carryLives;
+
+        // Crear plataformas
+        this.createPlatforms();
+        
+        // Crear jugador
+        this.createPlayer();
+        
+        // Inicializar grupos
+        this.enemies = this.physics.add.group();
+        this.coins = this.physics.add.group();
+        this.powerUps = this.physics.add.group();
+
+        // Crear enemigos
+        const enemySpawner = new EnemySpawner();
+        enemySpawner.spawn(this, this.enemies, this.levelIndex, this.getPathChoice());
+        
+        // Crear monedas
+        const coinSpawner = new CoinSpawner();
+        coinSpawner.spawn(this, this.coins, this.levelIndex, this.getPathChoice(), this.platforms);
+        this.totalCoins = this.coins.getChildren().length;
+
+        // Crear power-ups
+        const powerUpSpawner = new PowerUpSpawner();
+        powerUpSpawner.spawn(this, this.powerUps);
+
+        // Jefe en nivel 3
+        if (this.levelIndex >= 3) {
+            this.bossCtrl = new BossController(this);
+            this.bossCtrl.start(this.platforms, this.player);
+        }
+        
+        // Configurar controles (flechas + WASD) y capturas de teclado
+        this.cursors = this.input.keyboard!.createCursorKeys();
+        this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+        this.input.keyboard!.addCapture(['UP','DOWN','LEFT','RIGHT','SPACE','W','A','S','D']);
+        this.wasd = {
+            left: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+            right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+            up: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.W)
+        };
+        
+        // Crear UI
+        this.hud = new Hud(this, this.score, this.lives, this.totalCoins);
+        // Texto de héroe y stats (arriba derecha)
+        const heroLabel = HeroStatsService.getLabel(this.heroKey);
+        const statsTxt = `VEL ${this.speedX} | SALTO ${Math.abs(this.jumpV)} | VIDAS ${this.lives}`;
+        this.add.text(1024 - 16, 16, `Nivel: ${this.levelIndex}\nHéroe: ${heroLabel}\n${statsTxt}`, {
+            fontSize: '20px',
+            color: '#000',
+            align: 'right'
+        }).setOrigin(1, 0);
+        
+        // Configurar física
+        this.setupPhysics();
+
+        // Bridge boss controller overlap back to scene logic
+        this.events.on('boss-hit-player', () => this.hitEnemy(this.player, null));
+
+        EventBus.emit('current-scene-ready', this);
+    }
+
+    createPlatforms()
+    {
+        this.platforms = this.physics.add.staticGroup();
+        
+        // Plataforma base
+        this.platforms.create(512, 768, 'platform').setScale(10, 1).refreshBody();
+
+        const choice = this.getPathChoice();
+        if (this.levelIndex === 1) {
+            this.levelLayoutA();
+        } else if (this.levelIndex === 2) {
+            choice === 'A' ? this.levelLayoutA2() : this.levelLayoutB2();
+        } else {
+            choice === 'A' ? this.levelLayoutA3() : this.levelLayoutB3();
+        }
+    }
+
+    createPlayer()
+    {
+        const sheet = HeroStatsService.getSheetKey(this.heroKey);
+        this.player = this.physics.add.sprite(100, 700, sheet, 0);
+        this.player.setBounce(0.2);
+        this.player.setCollideWorldBounds(true);
+        this.player.setScale(1);
+    }
+
+    
+
+    setupPhysics()
+    {
+        // Colisiones del jugador con plataformas
+        this.physics.add.collider(this.player, this.platforms);
+        
+        // Colisiones de enemigos con plataformas
+        this.physics.add.collider(this.enemies, this.platforms);
+        
+        // Las monedas NO colisionan con plataformas (flotan libremente)
+        
+        // Los power-ups flotan; no colisionan con plataformas
+        
+        // Colisión jugador con enemigos
+        this.physics.add.overlap(this.player, this.enemies, this.hitEnemy, undefined, this);
+        
+        // Colisión jugador con monedas
+        this.physics.add.overlap(this.player, this.coins, this.collectCoin, undefined, this);
+
+        // Colisión jugador con power-ups
+        this.physics.add.overlap(this.player, this.powerUps, this.collectPowerUp, undefined, this);
+
+        // Proyectiles del jefe
+        if (this.bossCtrl?.getProjectiles()) {
+            const projs = this.bossCtrl.getProjectiles()!;
+            this.physics.add.overlap(this.player, projs, this.hitEnemy, undefined, this);
+            this.physics.add.collider(projs, this.platforms, (proj: any) => proj.destroy());
+        }
+    }
+
+    update()
+    {
+        // Controles del jugador (flechas o WASD)
+        const leftPressed = (this.cursors?.left?.isDown) || this.wasd?.left?.isDown;
+        const rightPressed = (this.cursors?.right?.isDown) || this.wasd?.right?.isDown;
+        if (leftPressed)
+        {
+            this.player.setVelocityX(-this.speedX);
+            this.player.setFlipX(true);
+        }
+        else if (rightPressed)
+        {
+            this.player.setVelocityX(this.speedX);
+            this.player.setFlipX(false);
+        }
+        else
+        {
+            this.player.setVelocityX(0);
+        }
+
+        if (this.player.body!.touching.down)
+        {
+            const upKey = this.cursors?.up;
+            const wKey = this.wasd?.up;
+            const space = this.spaceKey;
+            if ((upKey && Phaser.Input.Keyboard.JustDown(upKey)) || (wKey && Phaser.Input.Keyboard.JustDown(wKey)) || Phaser.Input.Keyboard.JustDown(space))
+            {
+                this.player.setVelocityY(this.jumpV);
+                Sfx.jump(this);
+            }
+        }
+        
+        // Animaciones: caminar / salto / idle
+        const onGround = this.player.body!.touching.down;
+        const vx = this.player.body!.velocity.x;
+        const moving = Math.abs(vx) > 10 && onGround;
+
+        const isSpeed = this.heroKey === 'hero_speed';
+        const isTank = this.heroKey === 'hero_tank';
+        const walkKey = isSpeed ? 'walk_speed' : isTank ? 'walk_tank' : 'walk_jump';
+        const idleKey = isSpeed ? 'idle_speed' : isTank ? 'idle_tank' : 'idle_jump';
+        const jumpKey = isSpeed ? 'jump_speed' : isTank ? 'jump_tank' : 'jump_jump';
+
+        if (!onGround) {
+            if (this.player.anims.currentAnim?.key !== jumpKey) {
+                this.player.anims.play(jumpKey, true);
+            }
+        } else if (moving) {
+            if (this.player.anims.currentAnim?.key !== walkKey) {
+                this.player.anims.play(walkKey, true);
+            }
+        } else {
+            if (this.player.anims.currentAnim?.key !== idleKey) {
+                this.player.anims.play(idleKey, true);
+            }
+        }
+
+        // Reiniciar si el jugador cae
+        if (this.player.y > 800)
+        {
+            this.resetPlayerPosition();
+        }
+
+        // Flip horizontal de duendes según dirección de movimiento
+        this.enemies.children.iterate((e: any) => {
+            const s = e as Phaser.Physics.Arcade.Sprite;
+            if (s.body) s.setFlipX((s.body as any).velocity.x < 0);
+            return true;
+        });
+        
+        // Verificar victoria (nunca más de una vez)
+        if (this.coins.countActive(true) === 0 && !this.gameWon)
+        {
+            this.gameWon = true;
+
+            // Bonus por completar el nivel
+            this.score += 100;
+            this.hud.updateScore(this.score);
+
+            if (this.levelIndex >= 3)
+            {
+                // Fin de la partida tras el jefe
+                this.registry.set('finalScore', this.score);
+                this.add.text(512, 384, '¡GANASTE!', {
+                    fontSize: '64px', color: '#00ff00', stroke: '#000000', strokeThickness: 4
+                }).setOrigin(0.5);
+                Sfx.win(this);
+                this.time.delayedCall(2500, () => { this.scene.start('GameOver'); });
+            }
+            else
+            {
+                this.levelComplete = true;
+                this.invincible = true;
+                Sfx.win(this);
+                this.add.text(512, 120, 'Elige una puerta', { fontSize: '40px', color: '#ffff00', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5);
+                // Retrasar un frame para asegurar que colisionadores/plataformas estén listos
+                this.time.delayedCall(50, () => {
+                    if (!this.doorCtrl) this.doorCtrl = new DoorController(this);
+                    this.doorCtrl.spawn(this.player, this.platforms, this.levelIndex, this.getPathChoice(), (choice) => this.enterDoor(choice));
+                });
+            }
+        }
+    }
+
+    private floatText(x: number, y: number, msg: string, color = '#ffff00')
+    {
+        const t = this.add.text(x, y, msg, { fontSize: '20px', color, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5);
+        this.tweens.add({ targets: t, y: y - 30, alpha: 0, duration: 700, onComplete: () => t.destroy() });
+    }
+
+    collectPowerUp(_player: any, pu: any)
+    {
+        const type = pu.getData('ptype');
+        const glow = pu.getData('glow');
+        
+        // Destruir el glow asociado
+        if (glow && glow.active) {
+            glow.destroy();
+        }
+        
+        pu.disableBody(true, true);
+        Sfx.powerUp(this);
+
+        // mini destello donde estaba el power-up
+        const flash = this.add.rectangle(pu.x, pu.y, 10, 10, 0xffffff, 0.9).setDepth(999);
+        this.tweens.add({ targets: flash, scaleX: 6, scaleY: 6, alpha: 0, duration: 220, onComplete: () => flash.destroy() });
+
+        switch (type) {
+            case 'life':
+                this.lives += 1;
+                this.hud.updateLives(this.lives);
+                this.floatText(pu.x, pu.y, '+1 Vida', '#2ecc71');
+                break;
+            case 'speed':
+                this.floatText(pu.x, pu.y, 'Velocidad +', '#3498db');
+                this.speedX = 450;
+                this.jumpV = -700;
+                this.player.setTint(0x3498db);
+                // pulso corto en el player
+                this.tweens.add({ targets: this.player, scaleX: 1.06, scaleY: 1.06, yoyo: true, duration: 120 });
+                this.time.delayedCall(5000, () => {
+                    this.speedX = 300;
+                    this.jumpV = -600;
+                    this.player.clearTint();
+                });
+                break;
+            case 'inv':
+                this.floatText(pu.x, pu.y, 'Invencible', '#f1c40f');
+                this.invincible = true;
+                this.player.setTint(0xf1c40f);
+                // aura rápida
+                const aura = this.add.circle(this.player.x, this.player.y, 22, 0xffff66, 0.2).setDepth(1).setBlendMode(Phaser.BlendModes.ADD);
+                const follow = this.time.addEvent({ delay: 16, loop: true, callback: () => aura.setPosition(this.player.x, this.player.y) });
+                this.tweens.add({ targets: aura, alpha: 0.35, yoyo: true, repeat: -1, duration: 300 });
+                this.time.delayedCall(4000, () => {
+                    this.invincible = false;
+                    this.player.clearTint();
+                    aura.destroy();
+                    follow.remove(false);
+                });
+                break;
+        }
+    }
+
+    createPowerUps()
+    {
+        this.powerUps = this.physics.add.group();
+
+        const items = [
+            { x: 500, y: 520, key: 'pu_speed_sheet', anim: 'pu_speed_idle', type: 'speed' },
+            { x: 850, y: 370, key: 'pu_inv_sheet', anim: 'pu_inv_idle', type: 'inv' },
+            { x: 150, y: 120, key: 'pu_life_sheet', anim: 'pu_life_idle', type: 'life' }
+        ];
+
+        items.forEach(i => {
+            // Verificar textura
+            const tex = this.textures.get(i.key);
+            if (!tex || tex.key === '__MISSING') {
+                console.error(`❌ Textura ${i.key} no encontrada`);
+                return;
+            }
+            
+            const pu = this.powerUps.create(i.x, i.y, i.key, 0) as Phaser.Physics.Arcade.Sprite;
+            pu.play(i.anim);
+            
+            // Escala moderada y sin físicas que lo muevan
+            pu.setScale(1.5);
+            pu.setBounce(0);
+            pu.setCollideWorldBounds(false);
+            pu.setData('ptype', i.type);
+            
+            // Hitbox ajustada (sprites de 32x32 escalados a 2.0 = 64x64)
+            pu.body!.setSize(20, 20).setOffset(2, 2);
+
+            // Flotantes: sin gravedad ni empuje
+            (pu.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+            pu.setImmovable(true);
+
+            // Efecto de flotación pronunciado
+            this.tweens.add({
+                targets: pu,
+                y: pu.y - 4,
+                duration: 1100,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.inOut'
+            });
+
+            // Efecto de pulso muy sutil en la escala
+            this.tweens.add({
+                targets: pu,
+                scaleX: 1.55,
+                scaleY: 1.55,
+                duration: 1200,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.inOut'
+            });
+
+            // Añadir un glow circular pequeño y muy sutil detrás según el tipo
+            let glowColor = 0xffffff;
+            if (i.type === 'life') glowColor = 0xff6b9d; // Rosa/rojo para vida
+            else if (i.type === 'speed') glowColor = 0x4fc3f7; // Azul cyan para velocidad
+            else if (i.type === 'inv') glowColor = 0xffd700; // Dorado para invencibilidad
+
+            const glow = this.add.circle(i.x, i.y, 14, glowColor, 0.12);
+            glow.setDepth(pu.depth - 1);
+            glow.setBlendMode(Phaser.BlendModes.ADD);
+
+            // Pulso del glow muy sutil
+            this.tweens.add({
+                targets: glow,
+                alpha: 0.2,
+                scale: 1.1,
+                duration: 1400,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.inOut'
+            });
+
+            // Vincular el glow al movimiento del power-up
+            pu.setData('glow', glow);
+            
+            // Actualizar posición del glow en cada frame
+            this.events.on('update', () => {
+                if (pu.active && glow.active) {
+                    glow.setPosition(pu.x, pu.y);
+                }
+            });
+        });
+        
+        console.log(`⚡ Creados ${items.length} power-ups`);
+    }
+
+    collectCoin(_player: any, coin: any)
+    {
+        // Crear efecto de partículas en la posición de la moneda
+        const particles = this.add.particles(coin.x, coin.y, 'coin_sheet', {
+            speed: { min: 50, max: 100 },
+            scale: { start: 0.5, end: 0 },
+            lifespan: 300,
+            quantity: 5
+        });
+        
+        // Eliminar el efecto después de un tiempo
+        this.time.delayedCall(300, () => {
+            particles.destroy();
+        });
+        
+        coin.disableBody(true, true);
+        this.score += 10;
+        this.hud.updateScore(this.score);
+        
+        // Actualizar contador de monedas
+        const coinsRemaining = this.coins.countActive(true);
+        const collected = this.totalCoins - coinsRemaining;
+        this.hud.updateCoins(collected, this.totalCoins);
+
+        Sfx.coin(this);
+
+        // Reproducir animación de "pick"
+        const pickKey = this.heroKey === 'hero_speed' ? 'pick_speed' :
+                        this.heroKey === 'hero_tank' ? 'pick_tank' : 'pick_jump';
+        const idleKey = this.heroKey === 'hero_speed' ? 'idle_speed' :
+                        this.heroKey === 'hero_tank' ? 'idle_tank' : 'idle_jump';
+
+        if (this.player.body!.touching.down) {
+            this.player.anims.play(pickKey);
+            this.player.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+                this.player.anims.play(idleKey, true);
+            });
+        }
+    }
+
+    hitEnemy(_player: any, _enemy: any)
+    {
+        if (this.invincible) {
+            return;
+        }
+        Sfx.hit(this);
+        // Efecto de vibración de la cámara
+        this.cameras.main.shake(500, 0.02);
+        
+        // Efecto visual de daño (parpadeo del jugador)
+        this.player.setTint(0xff0000);
+        this.time.delayedCall(200, () => {
+            this.player.clearTint();
+        });
+        
+        this.lives--;
+        this.hud.updateLives(this.lives);
+        
+        if (this.lives <= 0)
+        {
+            this.gameOver();
+        }
+        else
+        {
+            this.resetPlayerPosition();
+        }
+    }
+
+    resetPlayerPosition()
+    {
+        this.player.setPosition(100, 700);
+        this.player.setVelocity(0, 0);
+    }
+
+    gameOver()
+    {
+        // Guardar puntuación final
+        this.registry.set('finalScore', this.score);
+
+        Sfx.gameOver(this);
+
+        this.add.text(512, 384, 'GAME OVER', {
+            fontSize: '64px',
+            color: '#ff0000',
+            stroke: '#000000',
+            strokeThickness: 4
+        }).setOrigin(0.5);
+        
+        this.time.delayedCall(3000, () => {
+            this.scene.start('GameOver');
+        });
+    }
+
+    changeScene ()
+    {
+        this.scene.start('GameOver');
+    }
+
+    private getPathChoice(): 'A' | 'B'
+    {
+        if (this.levelIndex === 1) return 'A';
+        const idx = this.levelIndex - 2;
+        const c = this.path.charAt(idx);
+        return c === 'B' ? 'B' : 'A';
+    }
+
+    private levelLayoutA() {
+        this.platforms.create(200, 650, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(500, 550, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(800, 450, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(200, 350, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(600, 250, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(100, 150, 'platform').setScale(1.5, 1).refreshBody();
+        this.platforms.create(900, 150, 'platform').setScale(1.5, 1).refreshBody();
+    }
+    private levelLayoutA2() {
+        this.platforms.create(220, 620, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(420, 520, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(680, 420, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(820, 320, 'platform').setScale(1.5, 1).refreshBody();
+        this.platforms.create(512, 240, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(150, 180, 'platform').setScale(1.5, 1).refreshBody();
+        this.platforms.create(900, 180, 'platform').setScale(1.5, 1).refreshBody();
+    }
+    private levelLayoutB2() {
+        this.platforms.create(300, 600, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(520, 540, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(740, 480, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(900, 360, 'platform').setScale(1.5, 1).refreshBody();
+        this.platforms.create(620, 260, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(420, 200, 'platform').setScale(1.5, 1).refreshBody();
+        this.platforms.create(200, 160, 'platform').setScale(1.5, 1).refreshBody();
+    }
+    private levelLayoutA3() {
+        this.platforms.create(250, 560, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(500, 460, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(750, 360, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(300, 260, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(600, 160, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(900, 160, 'platform').setScale(1.5, 1).refreshBody();
+    }
+    private levelLayoutB3() {
+        this.platforms.create(200, 600, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(450, 520, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(700, 420, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(900, 300, 'platform').setScale(1.5, 1).refreshBody();
+        this.platforms.create(550, 220, 'platform').setScale(2, 1).refreshBody();
+        this.platforms.create(300, 180, 'platform').setScale(1.5, 1).refreshBody();
+    }
+
+
+    private enterDoor(choice: 'A' | 'B') {
+        if (!this.levelComplete) return;
+        const nextIndex = this.levelIndex + 1;
+        const nextPath = this.path + choice;
+        this.registry.set('levelIndex', nextIndex);
+        this.registry.set('path', nextPath);
+        this.registry.set('carryScore', this.score);
+        this.registry.set('carryLives', this.lives);
+        this.scene.restart();
+    }
+    
+}
+</file>
+
+<file path="src/game/scenes/GameOver.ts">
+import { EventBus } from '../EventBus';
+import { Sfx } from '../audio/Sfx';
+import { Scene } from 'phaser';
+
+export class GameOver extends Scene
+{
+    camera: Phaser.Cameras.Scene2D.Camera;
+    background: Phaser.GameObjects.Image;
+    gameOverText : Phaser.GameObjects.Text;
+
+    constructor ()
+    {
+        super('GameOver');
+    }
+
+    create ()
+    {
+        this.camera = this.cameras.main
+        this.camera.setBackgroundColor(0x2c3e50);
+
+        this.background = this.add.image(512, 384, 'background');
+        this.background.setAlpha(0.3);
+
+        this.gameOverText = this.add.text(512, 300, 'Fin del Juego', {
+            fontFamily: 'Arial Black', fontSize: 64, color: '#ffffff',
+            stroke: '#000000', strokeThickness: 8,
+            align: 'center'
+        }).setOrigin(0.5).setDepth(100);
+
+        // Mostrar puntuación final si está disponible
+        const finalScore = this.registry.get('finalScore') || 0;
+        this.add.text(512, 400, `Puntuación Final: ${finalScore}`, {
+            fontFamily: 'Arial', fontSize: 32, color: '#ffffff',
+            stroke: '#000000', strokeThickness: 4,
+            align: 'center'
+        }).setOrigin(0.5).setDepth(100);
+
+        // Botón para volver al menú
+        this.add.text(512, 500, 'Haz clic para volver al menú', {
+            fontFamily: 'Arial', fontSize: 24, color: '#ffff00',
+            stroke: '#000000', strokeThickness: 4,
+            align: 'center'
+        }).setOrigin(0.5).setDepth(100);
+
+        // Hacer la pantalla clickeable para volver al menú
+        this.input.once('pointerdown', () => {
+            Sfx.click(this);
+            this.changeScene();
+        });
+        
+        EventBus.emit('current-scene-ready', this);
+    }
+
+    changeScene ()
+    {
+        this.scene.start('MainMenu');
+    }
+}
+</file>
+
+<file path="src/game/scenes/LevelSelectDev.ts">
+import { Scene } from 'phaser';
+import { Sfx } from '../audio/Sfx';
+
+export class LevelSelectDev extends Scene {
+  constructor() {
+    super('LevelSelectDev');
+  }
+
+  create() {
+    this.add.text(512, 120, 'DEV: Seleccionar Nivel', {
+      fontFamily: 'Arial Black', fontSize: 48, color: '#ffff00',
+      stroke: '#000000', strokeThickness: 8, align: 'center'
+    }).setOrigin(0.5);
+
+    const options: { label: string; level: number; path: string }[] = [
+      { label: 'Nivel 1', level: 1, path: '' },
+      { label: 'Nivel 2A', level: 2, path: 'A' },
+      { label: 'Nivel 2B', level: 2, path: 'B' },
+      { label: 'Nivel 3A', level: 3, path: 'AA' },
+      { label: 'Nivel 3B', level: 3, path: 'AB' }
+    ];
+
+    const startX = 240;
+    const y = 300;
+    const gap = 150;
+
+    options.forEach((opt, i) => {
+      const x = startX + (i % 3) * gap;
+      const rowY = y + Math.floor(i / 3) * 120;
+      const btn = this.add.text(x, rowY, opt.label, {
+        fontFamily: 'Arial Black', fontSize: 32, color: '#00ff00', stroke: '#000000', strokeThickness: 6
+      }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+
+      btn.on('pointerdown', () => {
+        Sfx.click(this);
+        this.registry.set('levelIndex', opt.level);
+        this.registry.set('path', opt.path);
+        this.registry.set('carryScore', 0);
+        this.registry.set('carryLives', undefined);
+        this.scene.start('Game');
+      });
+    });
+
+    // Volver al menú
+    const back = this.add.text(512, 600, 'Volver al Menú', {
+      fontFamily: 'Arial', fontSize: 24, color: '#ffff00', stroke: '#000000', strokeThickness: 4
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    back.on('pointerdown', () => {
+      Sfx.click(this);
+      this.scene.start('MainMenu');
+    });
+  }
+}
+</file>
+
+<file path="src/game/scenes/MainMenu.ts">
+import { GameObjects, Scene } from 'phaser';
+import { EventBus } from '../EventBus';
+import { Sfx } from '../audio/Sfx';
+
+export class MainMenu extends Scene
+{
+    background: GameObjects.Image;
+    intro: GameObjects.Image;
+    title: GameObjects.Text;
+    logoTween: Phaser.Tweens.Tween | null;
+    // Pantalla principal limpia, selección se mueve a CharacterSelect
+
+    constructor ()
+    {
+        super('MainMenu');
+    }
+
+    create ()
+    {
+        this.background = this.add.image(512, 384, 'background');
+
+        // Agregar imagen de intro como portada del juego, centrada y escalada
+        this.intro = this.add.image(512, 500, 'intro')
+            .setDepth(100); // Escalar un poco para que ocupe más espacio
+
+        // // Agregar efecto de parpadeo (fade in/out suave)
+        // this.tweens.add({
+        //     targets: this.intro,
+        //     alpha: { from: 0.6, to: 1.0 },
+        //     duration: 1500,
+        //     yoyo: true,
+        //     repeat: -1,
+        //     ease: 'Sine.inOut'
+        // });
+
+        this.title = this.add.text(512, 350, 'Goblins & Heroes', {
+            fontFamily: 'Arial Black', fontSize: 48, color: '#ffffff',
+            stroke: '#000000', strokeThickness: 8,
+            align: 'center'
+        }).setOrigin(0.5).setDepth(100);
+
+        // Instrucciones del juego
+        this.add.text(512, 450, 'Usa las flechas para moverte\nFlecha arriba o Espacio para saltar\nRecoge todas las monedas\nEvita los enemigos rojos', {
+            fontFamily: 'Arial', fontSize: 24, color: '#ffffff',
+            stroke: '#000000', strokeThickness: 4,
+            align: 'center'
+        }).setOrigin(0.5).setDepth(100);
+
+        // Botón para ir al selector de personajes
+        this.add.text(512, 620, 'Haz clic para elegir personaje', {
+            fontFamily: 'Arial Black', fontSize: 32, color: '#ffff00',
+            stroke: '#000000', strokeThickness: 6,
+            align: 'center'
+        }).setOrigin(0.5).setDepth(100);
+
+        // Hacer la pantalla clickeable para iniciar el juego
+        this.input.once('pointerdown', () => {
+            Sfx.click(this);
+            this.changeScene();
+        });
+
+        // DEV: acceso rápido al selector de nivel
+        if (import.meta.env.DEV) {
+            this.add.text(16, 740, 'DEV: Seleccionar nivel', {
+                fontFamily: 'Arial', fontSize: 20, color: '#00ff00', stroke: '#000000', strokeThickness: 4
+            }).setOrigin(0, 1).setDepth(100).setInteractive({ useHandCursor: true })
+            .on('pointerdown', () => {
+                Sfx.click(this);
+                this.scene.start('LevelSelectDev');
+            });
+        }
+
+        EventBus.emit('current-scene-ready', this);
+    }
+    
+    changeScene ()
+    {
+        if (this.logoTween)
+        {
+            this.logoTween.stop();
+            this.logoTween = null;
+        }
+        this.scene.start('CharacterSelect');
+    }
+
+    moveLogo (vueCallback: ({ x, y }: { x: number, y: number }) => void)
+    {
+        if (this.logoTween)
+        {
+            if (this.logoTween.isPlaying())
+            {
+                this.logoTween.pause();
+            }
+            else
+            {
+                this.logoTween.play();
+            }
+        } 
+        else
+        {
+            this.logoTween = this.tweens.add({
+                targets: this.intro,
+                x: { value: 750, duration: 3000, ease: 'Back.easeInOut' },
+                y: { value: 80, duration: 1500, ease: 'Sine.easeOut' },
+                yoyo: true,
+                repeat: -1,
+                onUpdate: () => {
+                    if (vueCallback)
+                    {
+                        vueCallback({
+                            x: Math.floor(this.intro.x),
+                            y: Math.floor(this.intro.y)
+                        });
+                    }
+                }
+            });
+        }
+    }
+
+    // Selección movida a CharacterSelect
+}
+</file>
+
+<file path="src/game/scenes/Preloader.ts">
+import { Scene } from 'phaser';
+
+export class Preloader extends Scene
+{
+    constructor ()
+    {
+        super('Preloader');
+    }
+
+    init ()
+    {
+        //  We loaded this image in our Boot Scene, so we can display it here
+        this.add.image(512, 384, 'background');
+
+        //  A simple progress bar. This is the outline of the bar.
+        this.add.rectangle(512, 384, 468, 32).setStrokeStyle(1, 0xffffff);
+
+        //  This is the progress bar itself. It will increase in size from the left based on the % of progress.
+        const bar = this.add.rectangle(512-230, 384, 4, 28, 0xffffff);
+
+        //  Use the 'progress' event emitted by the LoaderPlugin to update the loading bar
+        this.load.on('progress', (progress: number) => {
+
+            //  Update the progress bar (our bar is 464px wide, so 100% = 464px)
+            bar.width = 4 + (460 * progress);
+
+        });
+    }
+
+    preload ()
+    {
+        //  Load the assets for the game - Replace with your own assets
+        this.load.setPath('assets');
+
+        this.load.image('logo', 'logo.png');
+        this.load.image('star', 'star.png');
+        this.load.image('intro', 'intro.png');
+        
+        // Cargar spritesheets de héroes
+        this.load.spritesheet('hero_speed_sheet', 'hero_speed_sheet.png', { frameWidth: 32, frameHeight: 32 });
+        this.load.spritesheet('hero_jump_sheet', 'hero_jump_sheet.png', { frameWidth: 32, frameHeight: 32 });
+        this.load.spritesheet('hero_tank_sheet', 'hero_tank_sheet.png', { frameWidth: 32, frameHeight: 32 });
+
+        // Cargar spritesheets de enemigos y jefe
+        this.load.spritesheet('goblin_green_sheet', 'goblin_green_sheet.png', { frameWidth: 32, frameHeight: 32 });
+        this.load.spritesheet('goblin_red_sheet', 'goblin_red_sheet.png', { frameWidth: 32, frameHeight: 32 });
+        this.load.spritesheet('boss_troll_sheet', 'boss_troll_sheet.png', { frameWidth: 64, frameHeight: 64 });
+
+        // Cargar spritesheets de monedas y power-ups
+        // Formato unificado: 8×3 grid de 32×32 por celda = 256×96 total
+        // 8 frames de animación en la primera fila (frames 0-7)
+        // Las filas 2 y 3 están transparentes (frames 8-23)
+        
+        this.load.spritesheet('coin_sheet', 'coin_sheet_like_hero.png', { 
+            frameWidth: 32, 
+            frameHeight: 32 
+        });
+        
+        this.load.spritesheet('pu_life_sheet', 'pu_life_sheet_like_hero.png', { 
+            frameWidth: 32, 
+            frameHeight: 32 
+        });
+        
+        this.load.spritesheet('pu_speed_sheet', 'pu_speed_sheet_like_hero.png', { 
+            frameWidth: 32, 
+            frameHeight: 32 
+        });
+        
+        this.load.spritesheet('pu_inv_sheet', 'pu_inv_sheet_like_hero.png', { 
+            frameWidth: 32, 
+            frameHeight: 32 
+        });
+
+        // Event listener para verificar carga exitosa
+        this.load.on('filecomplete', (key: string) => {
+            if (key.includes('coin_sheet') || key.includes('pu_')) {
+                console.log(`✅ Cargado: ${key}`);
+                const tex = this.textures.get(key);
+                if (tex) {
+                    console.log(`   Dimensiones: ${tex.source[0].width}x${tex.source[0].height}`);
+                }
+            }
+        });
+        
+        // Crear sprites proceduralmente para el juego de plataformas (player/platform/enemy/doors)
+        this.createPlayerSprite();
+        this.createPlatformSprite();
+        this.createEnemySprite();
+        // Monedas y power-ups vendrán de spritesheets — no generamos aquí
+        this.createDoorAndBossSprites();
+    }
+
+    createPlayerSprite()
+    {
+        // Crear un sprite del jugador (cuadrado azul)
+        const graphics = this.add.graphics();
+        graphics.fillStyle(0x3498db);
+        graphics.fillRect(0, 0, 32, 32);
+        graphics.generateTexture('player', 32, 32);
+        graphics.destroy();
+    }
+
+    createPlatformSprite()
+    {
+        // Crear sprite de plataforma (rectángulo marrón)
+        const graphics = this.add.graphics();
+        graphics.fillStyle(0x8B4513);
+        graphics.fillRect(0, 0, 100, 20);
+        graphics.generateTexture('platform', 100, 20);
+        graphics.destroy();
+    }
+
+    createEnemySprite()
+    {
+        // Crear sprite de enemigo (círculo rojo)
+        const graphics = this.add.graphics();
+        graphics.fillStyle(0xe74c3c);
+        graphics.fillCircle(16, 16, 16);
+        graphics.generateTexture('enemy', 32, 32);
+        graphics.destroy();
+    }
+
+    createCoinSprite() { /* no-op, usamos spritesheet */ }
+    createPowerUpSprites() { /* no-op, usamos spritesheet */ }
+
+    createDoorAndBossSprites()
+    {
+        // Puerta (marrón con marco claro)
+        let g = this.add.graphics();
+        g.fillStyle(0x8B4513);
+        g.fillRect(0, 0, 32, 48);
+        g.lineStyle(3, 0xdeb887);
+        g.strokeRect(0, 0, 32, 48);
+        g.fillStyle(0x3e2723); g.fillRect(10, 20, 12, 12); // pomo
+        g.generateTexture('door', 32, 48);
+        g.destroy();
+
+        // Proyectil (orbe morado)
+        g = this.add.graphics();
+        g.fillStyle(0x8e44ad); g.fillCircle(6, 6, 6);
+        g.lineStyle(2, 0xffffff); g.strokeCircle(6, 6, 6);
+        g.generateTexture('projectile', 12, 12);
+        g.destroy();
+
+        // Jefe (enemigo grande)
+        g = this.add.graphics();
+        g.fillStyle(0xc0392b);
+        g.fillCircle(32, 32, 32);
+        g.lineStyle(4, 0x000000); g.strokeCircle(32, 32, 32);
+        g.generateTexture('boss', 64, 64);
+        g.destroy();
+
+        // Glow de puerta (círculo amarillo con alpha)
+        g = this.add.graphics();
+        for (let r = 44; r >= 16; r -= 8) {
+            const alpha = (r - 12) / 44 * 0.25;
+            g.fillStyle(0xfff176, alpha);
+            g.fillCircle(48, 48, r);
+        }
+        g.generateTexture('door_glow', 96, 96);
+        g.destroy();
+
+        // Flecha guía (triángulo)
+        g = this.add.graphics();
+        g.fillStyle(0xffff00, 1);
+        g.fillTriangle(12, 24, 24, 24, 18, 8);
+        g.lineStyle(2, 0x000000, 0.8);
+        g.strokeTriangle(12, 24, 24, 24, 18, 8);
+        g.generateTexture('door_arrow', 36, 32);
+        g.destroy();
+    }
+
+    createHeroSprites()
+    {
+        // Función eliminada - ahora usamos spritesheets desde assets
+    }
+
+    create ()
+    {
+        // Definir animaciones para cada héroe desde las spritesheets
+        
+        // SPEED
+        this.anims.create({ key: 'idle_speed', frames: this.anims.generateFrameNumbers('hero_speed_sheet', { start: 0, end: 3 }), frameRate: 6, repeat: -1 });
+        this.anims.create({ key: 'walk_speed', frames: this.anims.generateFrameNumbers('hero_speed_sheet', { start: 4, end: 9 }), frameRate: 12, repeat: -1 });
+        this.anims.create({ key: 'jump_speed', frames: this.anims.generateFrameNumbers('hero_speed_sheet', { start: 10, end: 12 }), frameRate: 8, repeat: 0 });
+        this.anims.create({ key: 'pick_speed', frames: this.anims.generateFrameNumbers('hero_speed_sheet', { start: 13, end: 16 }), frameRate: 10, repeat: 0 });
+
+        // JUMP
+        this.anims.create({ key: 'idle_jump', frames: this.anims.generateFrameNumbers('hero_jump_sheet', { start: 0, end: 3 }), frameRate: 6, repeat: -1 });
+        this.anims.create({ key: 'walk_jump', frames: this.anims.generateFrameNumbers('hero_jump_sheet', { start: 4, end: 9 }), frameRate: 12, repeat: -1 });
+        this.anims.create({ key: 'jump_jump', frames: this.anims.generateFrameNumbers('hero_jump_sheet', { start: 10, end: 12 }), frameRate: 8, repeat: 0 });
+        this.anims.create({ key: 'pick_jump', frames: this.anims.generateFrameNumbers('hero_jump_sheet', { start: 13, end: 16 }), frameRate: 10, repeat: 0 });
+
+        // TANK
+        this.anims.create({ key: 'idle_tank', frames: this.anims.generateFrameNumbers('hero_tank_sheet', { start: 0, end: 3 }), frameRate: 5, repeat: -1 });
+        this.anims.create({ key: 'walk_tank', frames: this.anims.generateFrameNumbers('hero_tank_sheet', { start: 4, end: 9 }), frameRate: 10, repeat: -1 });
+        this.anims.create({ key: 'jump_tank', frames: this.anims.generateFrameNumbers('hero_tank_sheet', { start: 10, end: 12 }), frameRate: 6, repeat: 0 });
+        this.anims.create({ key: 'pick_tank', frames: this.anims.generateFrameNumbers('hero_tank_sheet', { start: 13, end: 16 }), frameRate: 8, repeat: 0 });
+
+        // GOBLINS (verde y rojo comparten animaciones)
+        this.anims.create({ key: 'goblin_idle', frames: this.anims.generateFrameNumbers('goblin_green_sheet', { start: 0, end: 3 }), frameRate: 6, repeat: -1 });
+        this.anims.create({ key: 'goblin_run', frames: this.anims.generateFrameNumbers('goblin_green_sheet', { start: 4, end: 9 }), frameRate: 10, repeat: -1 });
+        this.anims.create({ key: 'goblin_atk', frames: this.anims.generateFrameNumbers('goblin_green_sheet', { start: 10, end: 12 }), frameRate: 8, repeat: 0 });
+        this.anims.create({ key: 'goblin_hit', frames: this.anims.generateFrameNumbers('goblin_green_sheet', { start: 13, end: 16 }), frameRate: 10, repeat: 0 });
+
+        // TROLL (jefe)
+        this.anims.create({ key: 'troll_idle', frames: this.anims.generateFrameNumbers('boss_troll_sheet', { start: 0, end: 3 }), frameRate: 5, repeat: -1 });
+        this.anims.create({ key: 'troll_run', frames: this.anims.generateFrameNumbers('boss_troll_sheet', { start: 4, end: 9 }), frameRate: 8, repeat: -1 });
+        this.anims.create({ key: 'troll_cast', frames: this.anims.generateFrameNumbers('boss_troll_sheet', { start: 10, end: 12 }), frameRate: 8, repeat: 0 });
+        this.anims.create({ key: 'troll_portal', frames: this.anims.generateFrameNumbers('boss_troll_sheet', { start: 13, end: 16 }), frameRate: 10, repeat: 0 });
+
+        // MONEDA: animación de giro (8 frames de la fila 0)
+        this.anims.create({ 
+            key: 'coin_spin', 
+            frames: this.anims.generateFrameNumbers('coin_sheet', { start: 0, end: 7 }), 
+            frameRate: 12, 
+            repeat: -1 
+        });
+
+        // POWER-UPS: pulso suave (8 frames de la fila 0)
+        this.anims.create({ 
+            key: 'pu_life_idle', 
+            frames: this.anims.generateFrameNumbers('pu_life_sheet', { start: 0, end: 7 }), 
+            frameRate: 6, 
+            repeat: -1 
+        });
+        
+        this.anims.create({ 
+            key: 'pu_speed_idle', 
+            frames: this.anims.generateFrameNumbers('pu_speed_sheet', { start: 0, end: 7 }), 
+            frameRate: 12, 
+            repeat: -1 
+        });
+        
+        this.anims.create({ 
+            key: 'pu_inv_idle', 
+            frames: this.anims.generateFrameNumbers('pu_inv_sheet', { start: 0, end: 7 }), 
+            frameRate: 8, 
+            repeat: -1 
+        });
+
+        // Forzar filtro NEAREST en TODAS las texturas pixel art (Phaser 3.60+)
+        const allSheets = [
+            'coin_sheet', 'pu_life_sheet', 'pu_speed_sheet', 'pu_inv_sheet',
+            'hero_speed_sheet', 'hero_jump_sheet', 'hero_tank_sheet',
+            'goblin_green_sheet', 'goblin_red_sheet', 'boss_troll_sheet'
+        ];
+        allSheets.forEach(k => {
+            const texture = this.textures.get(k);
+            if (texture && texture.key !== '__MISSING') {
+                texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+            } else {
+                console.warn(`Textura "${k}" no encontrada o no cargada correctamente`);
+            }
+        });
+
+        //  Mover al menú principal
+        this.scene.start('MainMenu');
+    }
+}
+</file>
+
+<file path="src/game/spawners/CoinSpawner.ts">
+import { Scene } from 'phaser';
+import { getTopYForX } from '../utils/PlatformUtils';
+
+export class CoinSpawner {
+  spawn(
+    scene: Scene,
+    group: Phaser.Physics.Arcade.Group,
+    levelIndex: number,
+    pathChoice: 'A' | 'B',
+    platforms: Phaser.Physics.Arcade.StaticGroup
+  ): void {
+    let coins: { x: number; y: number }[] = [];
+    if (levelIndex === 1) {
+      coins = [
+        { x: 250, y: 600 }, { x: 550, y: 500 }, { x: 850, y: 400 },
+        { x: 250, y: 300 }, { x: 650, y: 200 }, { x: 150, y: 100 },
+        { x: 950, y: 100 }, { x: 512, y: 50 }
+      ];
+    } else if (levelIndex === 2) {
+      coins = pathChoice === 'A'
+        ? [
+            { x: 200, y: 600 }, { x: 400, y: 520 }, { x: 680, y: 420 },
+            { x: 820, y: 320 }, { x: 512, y: 240 }, { x: 150, y: 180 },
+            { x: 900, y: 180 }, { x: 512, y: 80 }
+          ]
+        : [
+            { x: 300, y: 580 }, { x: 520, y: 520 }, { x: 740, y: 460 },
+            { x: 900, y: 360 }, { x: 620, y: 260 }, { x: 420, y: 200 },
+            { x: 200, y: 160 }, { x: 850, y: 120 }
+          ];
+    } else {
+      coins = pathChoice === 'A'
+        ? [
+            { x: 250, y: 560 }, { x: 500, y: 460 }, { x: 750, y: 360 },
+            { x: 300, y: 260 }, { x: 600, y: 160 }, { x: 900, y: 160 },
+            { x: 150, y: 120 }, { x: 512, y: 80 }
+          ]
+        : [
+            { x: 200, y: 600 }, { x: 450, y: 520 }, { x: 700, y: 420 },
+            { x: 900, y: 300 }, { x: 550, y: 220 }, { x: 300, y: 180 },
+            { x: 150, y: 140 }, { x: 512, y: 100 }
+          ];
+    }
+
+    coins.forEach((pos) => {
+      const platformTop = getTopYForX(platforms, pos.x);
+      const spawnY = Math.min(pos.y, platformTop - 24); // clampa sobre plataforma
+      const coin = group.create(pos.x, spawnY, 'coin_sheet', 0) as Phaser.Physics.Arcade.Sprite;
+      coin.play('coin_spin');
+      coin.setScale(1);
+      (coin.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+      coin.setImmovable(true);
+      coin.setBounce(0);
+      coin.body!.setSize(20, 20).setOffset(2, 2);
+      scene.tweens.add({ targets: coin, y: spawnY - 2, yoyo: true, repeat: -1, duration: 700, ease: 'Sine.inOut' });
+    });
+  }
+}
+</file>
+
+<file path="src/game/spawners/EnemySpawner.ts">
+import { Scene } from 'phaser';
+
+export class EnemySpawner {
+  spawn(
+    _scene: Scene,
+    group: Phaser.Physics.Arcade.Group,
+    levelIndex: number,
+    pathChoice: 'A' | 'B'
+  ): void {
+    let positions: { x: number; y: number }[] = [];
+    if (levelIndex === 1) {
+      positions = [
+        { x: 500, y: 500 },
+        { x: 800, y: 400 },
+        { x: 200, y: 300 },
+        { x: 600, y: 200 }
+      ];
+    } else if (levelIndex === 2) {
+      positions = pathChoice === 'A'
+        ? [ { x: 300, y: 520 }, { x: 700, y: 420 } ]
+        : [ { x: 200, y: 480 }, { x: 850, y: 280 }, { x: 500, y: 360 } ];
+    } else {
+      positions = pathChoice === 'A'
+        ? [ { x: 250, y: 500 }, { x: 750, y: 300 } ]
+        : [ { x: 400, y: 520 }, { x: 900, y: 380 } ];
+    }
+
+    positions.forEach((pos, idx) => {
+      const key = (idx % 2 === 0) ? 'goblin_green_sheet' : 'goblin_red_sheet';
+      const gob = group.create(pos.x, pos.y, key, 0) as Phaser.Physics.Arcade.Sprite;
+      gob.setBounce(1).setCollideWorldBounds(true);
+      gob.setVelocity(Phaser.Math.Between(-200, 200), 0);
+      gob.setScale(1.5);
+      gob.body!.setSize(20, 26).setOffset(6, 6);
+      gob.play('goblin_run');
+    });
+  }
+}
+</file>
+
+<file path="src/game/spawners/PowerUpSpawner.ts">
+import { Scene } from 'phaser';
+
+export class PowerUpSpawner {
+  spawn(scene: Scene, group: Phaser.Physics.Arcade.Group): void {
+    const items = [
+      { x: 500, y: 520, key: 'pu_speed_sheet', anim: 'pu_speed_idle', type: 'speed' },
+      { x: 850, y: 370, key: 'pu_inv_sheet', anim: 'pu_inv_idle', type: 'inv' },
+      { x: 150, y: 120, key: 'pu_life_sheet', anim: 'pu_life_idle', type: 'life' }
+    ];
+
+    items.forEach(i => {
+      const tex = scene.textures.get(i.key);
+      if (!tex || tex.key === '__MISSING') {
+        console.error(`Textura ${i.key} no encontrada`);
+        return;
+      }
+
+      const pu = group.create(i.x, i.y, i.key, 0) as Phaser.Physics.Arcade.Sprite;
+      pu.play(i.anim);
+      pu.setScale(1.5);
+      pu.setBounce(0);
+      pu.setCollideWorldBounds(false);
+      pu.setData('ptype', i.type);
+      pu.body!.setSize(20, 20).setOffset(2, 2);
+      (pu.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+      pu.setImmovable(true);
+
+      scene.tweens.add({ targets: pu, y: pu.y - 4, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+      scene.tweens.add({ targets: pu, scaleX: 1.55, scaleY: 1.55, duration: 1200, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+
+      let glowColor = 0xffffff;
+      if (i.type === 'life') glowColor = 0xff6b9d;
+      else if (i.type === 'speed') glowColor = 0x4fc3f7;
+      else if (i.type === 'inv') glowColor = 0xffd700;
+
+      const glow = scene.add.circle(i.x, i.y, 14, glowColor, 0.12);
+      glow.setDepth(pu.depth - 1);
+      glow.setBlendMode(Phaser.BlendModes.ADD);
+      scene.tweens.add({ targets: glow, alpha: 0.2, scale: 1.1, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+      pu.setData('glow', glow);
+
+      scene.events.on('update', () => {
+        if (pu.active && glow.active) {
+          glow.setPosition(pu.x, pu.y);
+        }
+      });
+    });
+
+    console.log(`Creados ${items.length} power-ups`);
+  }
+}
+</file>
+
+<file path="src/game/ui/Hud.ts">
+import { Scene } from 'phaser';
+
+export interface IHUD {
+  updateScore(score: number): void;
+  updateLives(lives: number): void;
+  updateCoins(collected: number, total: number): void;
+  destroy(): void;
+}
+
+export class Hud implements IHUD {
+  private scene: Scene;
+  private scoreText!: Phaser.GameObjects.Text;
+  private livesText!: Phaser.GameObjects.Text;
+  private coinsText!: Phaser.GameObjects.Text;
+
+  constructor(scene: Scene, score: number, lives: number, totalCoins: number) {
+    this.scene = scene;
+    this.init(score, lives, totalCoins);
+  }
+
+  private init(score: number, lives: number, totalCoins: number) {
+    this.scoreText = this.scene.add.text(16, 16, `Puntuación: ${score}`, {
+      fontSize: '32px',
+      color: '#000'
+    });
+
+    this.livesText = this.scene.add.text(16, 60, `Vidas: ${lives}`, {
+      fontSize: '32px',
+      color: '#000'
+    });
+
+    this.coinsText = this.scene.add.text(16, 104, `Monedas: 0/${totalCoins}`, {
+      fontSize: '32px',
+      color: '#000'
+    });
+  }
+
+  updateScore(score: number): void {
+    this.scoreText.setText(`Puntuación: ${score}`);
+  }
+
+  updateLives(lives: number): void {
+    this.livesText.setText(`Vidas: ${lives}`);
+  }
+
+  updateCoins(collected: number, total: number): void {
+    this.coinsText.setText(`Monedas: ${collected}/${total}`);
+  }
+
+  destroy(): void {
+    this.scoreText?.destroy();
+    this.livesText?.destroy();
+    this.coinsText?.destroy();
+  }
+}
+</file>
+
+<file path="src/game/utils/PlatformUtils.ts">
+export function getTopYForX(platforms: Phaser.Physics.Arcade.StaticGroup, x: number, fallback = 420): number {
+  let y = fallback;
+  const children = platforms.getChildren() as any[];
+  children.forEach((obj: any) => {
+    if (!obj || typeof obj.x !== 'number' || typeof obj.y !== 'number') return;
+    const w = (obj.displayWidth ?? 100);
+    const h = (obj.displayHeight ?? 20);
+    const halfW = w / 2;
+    if (x >= obj.x - halfW && x <= obj.x + halfW) {
+      const top = obj.y - h / 2;
+      if (top < y) y = top;
+    }
+  });
+  return y;
+}
+</file>
+
+<file path="src/main.ts">
+import App from './App.vue';
+import { createApp } from 'vue';
+
+createApp(App).mount('#app');
+</file>
+
+<file path="src/PhaserGame.vue">
+<script setup lang="ts">
+import { onMounted, onUnmounted, ref } from 'vue';
+import { EventBus } from './game/EventBus';
+import StartGame from './game/main';
+import Phaser from 'phaser';
+
+// Typed references to current Phaser instances
+const scene = ref<Phaser.Scene | null>(null);
+const game = ref<Phaser.Game | null>(null);
+
+const emit = defineEmits<{
+  (e: 'current-active-scene', scene: Phaser.Scene): void
+}>();
+
+onMounted(() => {
+  game.value = StartGame('game-container');
+
+  EventBus.on('current-scene-ready', (sceneInstance: Phaser.Scene) => {
+    emit('current-active-scene', sceneInstance);
+    scene.value = sceneInstance;
+  });
+});
+
+onUnmounted(() => {
+  if (game.value) {
+    game.value.destroy(true);
+    game.value = null;
+  }
+});
+
+// Expose raw values (not Refs) for parent consumers
+defineExpose({
+  get scene() {
+    return scene.value;
+  },
+  get game() {
+    return game.value;
+  }
+});
+
+</script>
+
+<template>
+    <div id="game-container"></div>
+</template>
+</file>
+
+<file path="src/vite-env.d.ts">
+/// <reference types="vite/client" />
+</file>
+
+<file path="tsconfig.json">
+{
+    "compilerOptions": {
+        "target": "ES2020",
+        "useDefineForClassFields": true,
+        "module": "ESNext",
+        "lib": [
+            "ES2020",
+            "DOM",
+            "DOM.Iterable"
+        ],
+        "skipLibCheck": true,
+        /* Bundler mode */
+        "moduleResolution": "bundler",
+        "allowImportingTsExtensions": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "noEmit": true,
+        "jsx": "preserve",
+        /* Linting */
+        "strict": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noFallthroughCasesInSwitch": true,
+        "strictPropertyInitialization": false
+    },
+    "include": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "src/**/*.vue"
+    ],
+    "references": [
+        {
+            "path": "./tsconfig.node.json"
+        }
+    ]
+}
+</file>
+
+<file path="tsconfig.node.json">
+{
+    "compilerOptions": {
+        "composite": true,
+        "skipLibCheck": true,
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "allowSyntheticDefaultImports": true,
+        "strict": true
+    },
+    "include": [
+        "vite.config.ts"
+    ]
+}
+</file>
+
+<file path="vite/config.dev.mjs">
+import { fileURLToPath, URL } from 'node:url'
+
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+    base: './',
+    plugins: [
+        vue(),
+    ],
+    resolve: {
+        alias: {
+            '@': fileURLToPath(new URL('../src', import.meta.url))
+        }
+    },
+    server: {
+        port: 8080
+    }
+})
+</file>
+
+<file path="vite/config.prod.mjs">
+import { fileURLToPath, URL } from 'node:url'
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue'
+
+const phasermsg = () => {
+    return {
+        name: 'phasermsg',
+        buildStart() {
+            process.stdout.write(`Building for production...\n`);
+        },
+        buildEnd() {
+            const line = "---------------------------------------------------------";
+            const msg = `❤️❤️❤️ Tell us about your game! - games@phaser.io ❤️❤️❤️`;
+            process.stdout.write(`${line}\n${msg}\n${line}\n`);
+
+            process.stdout.write(`✨ Done ✨\n`);
+        }
+    }
+}
+
+export default defineConfig({
+    base: './',
+    plugins: [
+        vue(),
+        phasermsg()
+    ],
+    resolve: {
+        alias: {
+          '@': fileURLToPath(new URL('../src', import.meta.url))
+        }
+      },
+    logLevel: 'warning',
+    build: {
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    phaser: ['phaser']
+                }
+            }
+        },
+        minify: 'terser',
+        terserOptions: {
+            compress: {
+                passes: 2
+            },
+            mangle: true,
+            format: {
+                comments: false
+            }
+        }
+    }
+});
 </file>
 
 </files>
