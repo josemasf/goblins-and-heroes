@@ -32,9 +32,45 @@ export class Preloader extends Scene
         //  Load the assets for the game - Replace with your own assets
         this.load.setPath('assets');
 
-        this.load.image('logo', 'logo.png');
-        this.load.image('star', 'star.png');
+        // Nota: eliminamos logo/star de assets (no existen en /public/assets)
+        // Generaremos una textura 'star' procedural abajo para compatibilidad con App.vue
         this.load.image('intro', 'intro.png');
+
+        // Fondos parallax (pack gótico)
+        // ESCENA 1 - Pasillo de castillo
+        this.load.image('s1_bg', 'parallax_dungeon_pack/scene1_castle_corridor/scene1_castle_corridor_bg.png');
+        this.load.image('s1_mid', 'parallax_dungeon_pack/scene1_castle_corridor/scene1_castle_corridor_mid.png');
+        this.load.image('s1_arches', 'parallax_dungeon_pack/scene1_castle_corridor/scene1_castle_corridor_arches.png');
+        this.load.image('s1_lights', 'parallax_dungeon_pack/scene1_castle_corridor/scene1_castle_corridor_lights.png');
+        this.load.image('s1_fog', 'parallax_dungeon_pack/scene1_castle_corridor/scene1_castle_corridor_fog.png');
+        this.load.image('s1_fg', 'parallax_dungeon_pack/scene1_castle_corridor/scene1_castle_corridor_fg.png');
+
+        // ESCENA 2 - Cripta
+        this.load.image('s2_bg', 'parallax_dungeon_pack/scene2_crypt/scene2_crypt_bg.png');
+        this.load.image('s2_mid', 'parallax_dungeon_pack/scene2_crypt/scene2_crypt_mid.png');
+        this.load.image('s2_coffins', 'parallax_dungeon_pack/scene2_crypt/scene2_crypt_coffins.png');
+        this.load.image('s2_lights', 'parallax_dungeon_pack/scene2_crypt/scene2_crypt_lights.png');
+        this.load.image('s2_fog', 'parallax_dungeon_pack/scene2_crypt/scene2_crypt_fog.png');
+
+        // ESCENA 3 - Ruinas con lava
+        this.load.image('s3_bg', 'parallax_dungeon_pack/scene3_lava_ruins/scene3_lava_ruins_bg.png');
+        this.load.image('s3_mid', 'parallax_dungeon_pack/scene3_lava_ruins/scene3_lava_ruins_mid.png');
+        this.load.image('s3_lava', 'parallax_dungeon_pack/scene3_lava_ruins/scene3_lava_ruins_lava.png');
+        this.load.image('s3_fog', 'parallax_dungeon_pack/scene3_lava_ruins/scene3_lava_ruins_fog.png');
+
+        // ESCENA 4 - Sala del trono
+        this.load.image('s4_bg', 'parallax_dungeon_pack/scene4_throne_room/scene4_throne_room_bg.png');
+        this.load.image('s4_mid', 'parallax_dungeon_pack/scene4_throne_room/scene4_throne_room_mid.png');
+        this.load.image('s4_arches', 'parallax_dungeon_pack/scene4_throne_room/scene4_throne_room_arches.png');
+        this.load.image('s4_banners', 'parallax_dungeon_pack/scene4_throne_room/scene4_throne_room_banners.png');
+        this.load.image('s4_lights', 'parallax_dungeon_pack/scene4_throne_room/scene4_throne_room_lights.png');
+
+        // ESCENA 5 - Cámara de cristales
+        this.load.image('s5_bg', 'parallax_dungeon_pack/scene5_crystal_chamber/scene5_crystal_chamber_bg.png');
+        this.load.image('s5_mid', 'parallax_dungeon_pack/scene5_crystal_chamber/scene5_crystal_chamber_mid.png');
+        this.load.image('s5_crystals', 'parallax_dungeon_pack/scene5_crystal_chamber/scene5_crystal_chamber_crystals.png');
+        this.load.image('s5_fog', 'parallax_dungeon_pack/scene5_crystal_chamber/scene5_crystal_chamber_fog.png');
+        this.load.image('s5_fg', 'parallax_dungeon_pack/scene5_crystal_chamber/scene5_crystal_chamber_fg.png');
         
         // Cargar spritesheets de héroes
         this.load.spritesheet('hero_speed_sheet', 'hero_speed_sheet.png', { frameWidth: 32, frameHeight: 32 });
@@ -86,6 +122,8 @@ export class Preloader extends Scene
         this.createPlayerSprite();
         this.createPlatformSprite();
         this.createEnemySprite();
+        // Sprite 'star' para compatibilidad con App.vue
+        this.createStarSprite();
         // Monedas y power-ups vendrán de spritesheets — no generamos aquí
         this.createDoorAndBossSprites();
     }
@@ -173,6 +211,30 @@ export class Preloader extends Scene
     createHeroSprites()
     {
         // Función eliminada - ahora usamos spritesheets desde assets
+    }
+
+    createStarSprite()
+    {
+        // Estrella amarilla sencilla (32x32)
+        const g = this.add.graphics();
+        g.clear();
+        g.fillStyle(0xffd54f, 1);
+        const cx = 16, cy = 16, R = 14, r = 6;
+        const pts: { x: number, y: number }[] = [];
+        for (let i = 0; i < 10; i++) {
+            const ang = (Math.PI * 2 * i) / 10 - Math.PI / 2;
+            const rad = (i % 2 === 0) ? R : r;
+            pts.push({ x: cx + Math.cos(ang) * rad, y: cy + Math.sin(ang) * rad });
+        }
+        g.beginPath();
+        g.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+        g.closePath();
+        g.fillPath();
+        g.lineStyle(2, 0xfff8e1, 1);
+        g.strokePath();
+        g.generateTexture('star', 32, 32);
+        g.destroy();
     }
 
     create ()

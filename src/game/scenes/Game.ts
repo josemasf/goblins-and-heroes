@@ -53,6 +53,9 @@ export class Game extends Scene
         this.camera.setBackgroundColor(0x87CEEB); // Azul cielo
         this.camera.roundPixels = true; // Evitar sub-pixel blur en pixel art
 
+        // Fondos parallax automáticos según nivel/ruta
+        this.addParallaxBackground(this.getBackgroundPrefix());
+
         // Reset de estado de nivel al (re)entrar
         this.gameWon = false;
         this.levelComplete = false;
@@ -142,6 +145,57 @@ export class Game extends Scene
         this.events.on('boss-hit-player', () => this.hitEnemy(this.player, null));
 
         EventBus.emit('current-scene-ready', this);
+    }
+
+    private addParallaxBackground(prefix: string)
+    {
+        const cx = 1024 / 2;
+        const cy = 768 / 2;
+        const has = (key: string) => this.textures.exists(key);
+        const add = (suffix: string, sf: number, depth: number, alpha?: number) => {
+            const key = `${prefix}${suffix}`;
+            if (!has(key)) return null;
+            const img = this.add.image(cx, cy, key).setScrollFactor(sf).setDepth(depth).setName(key);
+            if (alpha !== undefined) img.setAlpha(alpha);
+            return img as Phaser.GameObjects.Image | null;
+        };
+
+        // Orden típico del pack (ajusta valores si lo deseas)
+        add('bg', 0.10, -50);
+        add('mid', 0.25, -40);
+        add('arches', 0.35, -35);
+        add('coffins', 0.35, -35);
+        add('crystals', 0.35, -35);
+        add('lava', 0.35, -35);
+        add('banners', 0.35, -35);
+        add('lights', 0.40, -30);
+        const fog = add('fog', 0.55, -25, 0.85);
+        add('fg', 0.70, -20, 0.95);
+
+        // Pulso sutil en la niebla si existe
+        if (fog) {
+            this.tweens.add({
+                targets: fog,
+                alpha: { from: 0.75, to: 0.9 },
+                duration: 2400,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.inOut'
+            });
+        }
+    }
+
+    private getBackgroundPrefix(): string
+    {
+        // Sugerencias de mezcla por nivel
+        // Nivel 1 (A/B): scene1_castle_corridor -> 's1_'
+        // Nivel 2A: 's2_', 2B: 's5_'
+        // Nivel 3A: 's4_', 3B: 's3_'
+        if (this.levelIndex === 1) return 's1_';
+        const choice = this.getPathChoice();
+        if (this.levelIndex === 2) return choice === 'A' ? 's2_' : 's5_';
+        // 3 o más: usar mapeo de jefe
+        return choice === 'A' ? 's4_' : 's3_';
     }
 
     createPlatforms()
