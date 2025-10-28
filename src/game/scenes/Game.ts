@@ -23,6 +23,9 @@ export class Game extends Scene
     enemies!: Phaser.Physics.Arcade.Group;
     coins!: Phaser.Physics.Arcade.Group;
     powerUps!: Phaser.Physics.Arcade.Group;
+    movingPlatforms!: Phaser.Physics.Arcade.StaticGroup;
+    currentCarrier?: Phaser.Physics.Arcade.Image | null;
+    movingPlatforms!: Phaser.Physics.Arcade.Group;
     cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
     spaceKey!: Phaser.Input.Keyboard.Key;
     wasd!: { left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key; up: Phaser.Input.Keyboard.Key };
@@ -89,6 +92,8 @@ export class Game extends Scene
 
         // Crear plataformas
         this.createPlatforms();
+        // Crear plataformas móviles
+        this.createMovingPlatforms();
         
         // Crear jugador
         this.createPlayer();
@@ -230,9 +235,18 @@ export class Game extends Scene
     {
         // Colisiones del jugador con plataformas
         this.physics.add.collider(this.player, this.platforms);
+        // Colisiones del jugador con plataformas móviles (captura portador)
+        if (this.movingPlatforms) {
+            this.physics.add.collider(this.player, this.movingPlatforms, (_p: any, plat: any) => {
+                this.currentCarrier = plat as any;
+            });
+        }
         
         // Colisiones de enemigos con plataformas
         this.physics.add.collider(this.enemies, this.platforms);
+        if (this.movingPlatforms) {
+            this.physics.add.collider(this.enemies, this.movingPlatforms);
+        }
         
         // Las monedas NO colisionan con plataformas (flotan libremente)
         
@@ -257,6 +271,8 @@ export class Game extends Scene
 
     update()
     {
+        // Actualizar plataformas móviles (sinusoidal + refreshBody)
+        this.updateMovingPlatforms();
         // Controles del jugador (flechas o WASD)
         const leftPressed = (this.cursors?.left?.isDown) || this.wasd?.left?.isDown;
         const rightPressed = (this.cursors?.right?.isDown) || this.wasd?.right?.isDown;
@@ -357,6 +373,18 @@ export class Game extends Scene
                 });
             }
         }
+
+        // Arrastre por plataforma móvil bajo los pies (ayuda en X o bloqueo suave en Y)
+        if (this.player.body!.touching.down && this.currentCarrier)
+        {
+            const img: any = this.currentCarrier;
+            const dx = (img.getData && img.getData('dx')) ?? 0;
+            const dy = (img.getData && img.getData('dy')) ?? 0;
+            this.player.x += dx;
+            this.player.y += dy;
+        }
+        // Reset para el siguiente frame; se fijará en el collider si aplica
+        this.currentCarrier = null;
     }
 
     private floatText(x: number, y: number, msg: string, color = '#ffff00')
@@ -669,6 +697,87 @@ export class Game extends Scene
         this.registry.set('carryScore', this.score);
         this.registry.set('carryLives', this.lives);
         this.scene.restart();
+    }
+    
+    private createMovingPlatforms()
+    {
+        this.movingPlatforms = this.physics.add.staticGroup();
+        const choice = this.getPathChoice();
+
+        const addPlatform = (x: number, y: number, axis: 'x' | 'y', range: number, periodMs: number, scaleX = 2, scaleY = 1) => {
+            const p = this.physics.add.staticImage(x, y, 'platform');
+            p.setScale(scaleX, scaleY);
+            p.refreshBody();
+            this.movingPlatforms.add(p);
+
+            // Datos de movimiento sinusoidal
+            p.setData('axis', axis);
+            p.setData('baseX', x);
+            p.setData('baseY', y);
+            p.setData('range', range);
+            p.setData('period', periodMs);
+            p.setData('phase', Math.random() * Math.PI * 2);
+            p.setData('prevX', x);
+            p.setData('prevY', y);
+            p.setData('dx', 0);
+            p.setData('dy', 0);
+        };
+
+        if (this.levelIndex === 1)
+        {
+            // Ayuda en desplazamiento: horizontal (más sutil)
+            addPlatform(500, 500, 'x', 140, 3200, 2, 1);
+            // Bloqueo suave de salto: vertical de poco rango
+            addPlatform(320, 380, 'y', 30, 1800, 1.5, 1);
+        }
+        else if (this.levelIndex === 2)
+        {
+            if (choice === 'A') {
+                addPlatform(700, 420, 'x', 150, 3000, 2, 1);
+                addPlatform(260, 300, 'y', 100, 3000, 1.5, 1);
+            } else {
+                addPlatform(820, 360, 'x', 160, 3200, 2, 1);
+                addPlatform(360, 260, 'y', 110, 3200, 1.5, 1);
+            }
+        }
+        else
+        {
+            addPlatform(300, 560, 'x', 160, 3200, 2, 1);
+            addPlatform(780, 320, 'y', 120, 3200, 1.5, 1);
+        }
+    }
+
+    private updateMovingPlatforms()
+    {
+        if (!this.movingPlatforms) return;
+        const time = this.time.now; // ms
+        this.movingPlatforms.children.iterate((c: any) => {
+            const img = c as Phaser.Physics.Arcade.Image;
+            const axis: 'x' | 'y' = img.getData('axis');
+            const baseX: number = img.getData('baseX');
+            const baseY: number = img.getData('baseY');
+            const range: number = img.getData('range');
+            const period: number = img.getData('period');
+            const phase: number = img.getData('phase') ?? 0;
+            const prevX: number = img.getData('prevX') ?? img.x;
+            const prevY: number = img.getData('prevY') ?? img.y;
+
+            const t = (time / period) * Math.PI * 2 + phase;
+            const offset = Math.sin(t) * range;
+            const newX = axis === 'x' ? baseX + offset : baseX;
+            const newY = axis === 'y' ? baseY + offset : baseY;
+
+            img.setPosition(newX, newY);
+            img.refreshBody();
+
+            const dx = newX - prevX;
+            const dy = newY - prevY;
+            img.setData('dx', dx);
+            img.setData('dy', dy);
+            img.setData('prevX', newX);
+            img.setData('prevY', newY);
+            return true;
+        });
     }
     
 }
