@@ -30,11 +30,11 @@ export class Preloader extends Scene
     preload ()
     {
         //  Load the assets for the game - Replace with your own assets
-        //  AUDIO config primero
+        //  Primero: AUDIO CONFIG
         this.load.setPath('assets/audio');
         this.load.json('music_config', 'music_config.json');
 
-        //  Volver a assets para el resto
+        //  Luego: volver a assets para el resto de gráficos
         this.load.setPath('assets');
 
         // Nota: eliminamos logo/star de assets (no existen en /public/assets)
@@ -325,4 +325,42 @@ export class Preloader extends Scene
         this.scene.start('MainMenu');
     }
 }
+
+
+
+
+    async create()
+    {
+        // Registrar y cargar pistas de música desde la config
+        const cfg = this.cache.json.get('music_config') as {
+            defaultVolume?: number;
+            crossfadeMs?: number;
+            tracks?: Record<string, { file: string; volume?: number; loop?: boolean }>
+        } | undefined;
+
+        if (!cfg || !cfg.tracks)
+        {
+            console.warn('[Music] music_config.json no encontrado o inválido.');
+        }
+        else
+        {
+            this.load.setPath('assets/audio');
+            Object.entries(cfg.tracks).forEach(([key, def]) => {
+                if (!def?.file)
+                {
+                    console.warn(`[Music] Pista "${key}" sin "file" en config.`);
+                    return;
+                }
+                this.load.audio(key, def.file);
+            });
+
+            await new Promise<void>((resolve) => {
+                this.load.once(Phaser.Loader.Events.COMPLETE, () => resolve());
+                this.load.start();
+            });
+        }
+
+        // Avanzar a la siguiente escena
+        this.scene.start('MainMenu');
+    }
 

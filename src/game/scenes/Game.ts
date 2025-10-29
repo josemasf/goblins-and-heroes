@@ -1,3 +1,4 @@
+import MusicManager from '../audio/MusicManager';
 import { EventBus } from '../EventBus';
 import { Sfx } from '../audio/Sfx';
 import { Scene } from 'phaser';
@@ -25,7 +26,7 @@ export class Game extends Scene
     powerUps!: Phaser.Physics.Arcade.Group;
     movingPlatforms!: Phaser.Physics.Arcade.StaticGroup;
     currentCarrier?: Phaser.Physics.Arcade.Image | null;
-    movingPlatforms!: Phaser.Physics.Arcade.Group;
+    // movingPlatforms!: Phaser.Physics.Arcade.Group;
     cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
     spaceKey!: Phaser.Input.Keyboard.Key;
     wasd!: { left: Phaser.Input.Keyboard.Key; right: Phaser.Input.Keyboard.Key; up: Phaser.Input.Keyboard.Key };
@@ -57,7 +58,11 @@ export class Game extends Scene
         this.camera.roundPixels = true; // Evitar sub-pixel blur en pixel art
 
         // Fondos parallax automáticos según nivel/ruta
-        this.addParallaxBackground(this.getBackgroundPrefix());
+        const bgPrefix = this.getBackgroundPrefix();
+        this.addParallaxBackground(bgPrefix);
+
+        const music = MusicManager.get(this);
+        music.playForContext({ levelIndex: this.levelIndex, path: this.getPathChoice() }, 600);
 
         // Reset de estado de nivel al (re)entrar
         this.gameWon = false;
@@ -781,3 +786,6 @@ export class Game extends Scene
     }
     
 }
+
+
+

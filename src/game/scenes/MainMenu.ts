@@ -1,3 +1,4 @@
+import MusicManager from '../audio/MusicManager';
 import { GameObjects, Scene } from 'phaser';
 import { EventBus } from '../EventBus';
 import { Sfx } from '../audio/Sfx';
@@ -17,21 +18,36 @@ export class MainMenu extends Scene
 
     create ()
     {
+        const music = MusicManager.get(this);
+        const cfg = this.cache.json.get('music_config') as {
+            tracks?: Record<string, { file: string; volume?: number; loop?: boolean }>
+        } | undefined;
+        const needLoad = !this.cache.audio.exists('castle_theme');
+
+        const startMusic = () => {
+            if (this.sound.locked) {
+                this.input.once('pointerdown', () => music.play('castle_theme', { fadeIn: 600 }));
+            } else {
+                music.play('castle_theme', { fadeIn: 600 });
+            }
+        };
+
+        if (needLoad && cfg?.tracks) {
+            this.load.setPath('assets/audio');
+            Object.entries(cfg.tracks).forEach(([key, def]) => {
+                if (!def?.file) return;
+                this.load.audio(key, def.file);
+            });
+            this.load.once(Phaser.Loader.Events.COMPLETE, startMusic);
+            this.load.start();
+        } else {
+            startMusic();
+        }
+
         this.background = this.add.image(512, 384, 'background');
 
         // Agregar imagen de intro como portada del juego, centrada y escalada
-        this.intro = this.add.image(512, 500, 'intro')
-            .setDepth(100); // Escalar un poco para que ocupe más espacio
-
-        // // Agregar efecto de parpadeo (fade in/out suave)
-        // this.tweens.add({
-        //     targets: this.intro,
-        //     alpha: { from: 0.6, to: 1.0 },
-        //     duration: 1500,
-        //     yoyo: true,
-        //     repeat: -1,
-        //     ease: 'Sine.inOut'
-        // });
+        this.intro = this.add.image(512, 500, 'intro').setDepth(100);
 
         this.title = this.add.text(512, 350, 'Goblins & Heroes', {
             fontFamily: 'Arial Black', fontSize: 48, color: '#ffffff',
@@ -40,7 +56,13 @@ export class MainMenu extends Scene
         }).setOrigin(0.5).setDepth(100);
 
         // Instrucciones del juego
-        this.add.text(512, 450, 'Usa las flechas para moverte\nFlecha arriba o Espacio para saltar\nRecoge todas las monedas\nEvita los enemigos rojos', {
+        const instructions = [
+            'Usa las flechas para moverte',
+            'Flecha arriba o Espacio para saltar',
+            'Recoge todas las monedas',
+            'Evita los enemigos rojos'
+        ].join('\n');
+        this.add.text(512, 450, instructions, {
             fontFamily: 'Arial', fontSize: 24, color: '#ffffff',
             stroke: '#000000', strokeThickness: 4,
             align: 'center'
@@ -48,8 +70,7 @@ export class MainMenu extends Scene
 
         // Botón para ir al selector de personajes
         this.add.text(512, 620, 'Haz clic para elegir personaje', {
-            fontFamily: 'Arial Black', fontSize: 32, color: '#ffff00',
-            stroke: '#000000', strokeThickness: 6,
+            fontFamily: 'Arial Black', fontSize: 32, color: '#ffff00', stroke: '#000000', strokeThickness: 6,
             align: 'center'
         }).setOrigin(0.5).setDepth(100);
 
@@ -59,7 +80,6 @@ export class MainMenu extends Scene
             this.changeScene();
         });
 
-        // DEV: acceso rápido al selector de nivel
         if (import.meta.env.DEV) {
             this.add.text(16, 740, 'DEV: Seleccionar nivel', {
                 fontFamily: 'Arial', fontSize: 20, color: '#00ff00', stroke: '#000000', strokeThickness: 4
@@ -71,9 +91,7 @@ export class MainMenu extends Scene
         }
 
         EventBus.emit('current-scene-ready', this);
-    }
-    
-    changeScene ()
+    }changeScene ()
     {
         if (this.logoTween)
         {
@@ -119,3 +137,16 @@ export class MainMenu extends Scene
 
     // Selección movida a CharacterSelect
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

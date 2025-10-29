@@ -1,0 +1,12 @@
+{
+  "defaultVolume": 0.3,
+  "crossfadeMs": 600,
+  "tracks": {
+    "main_menu": { "file": "audio/castle_theme.mp3", "volume": 0.35, "loop": true },
+    "castle_theme":    { "file": "audio/castle_theme.mp3",    "volume": 0.35, "loop": true },
+    "crypt_theme":     { "file": "audio/crypt_theme.mp3",     "volume": 0.25, "loop": true },
+    "lava_theme":      { "file": "audio/lava_theme.mp3",      "volume": 0.30, "loop": true },
+    "throne_theme":    { "file": "audio/throne_theme.mp3",    "volume": 0.40, "loop": true },
+    "crystals_theme":  { "file": "audio/orcrystals_theme.mp3", "volume": 0.28, "loop": true }
+  }
+}
