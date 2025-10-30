@@ -322,7 +322,25 @@ export class Preloader extends Scene
         });
 
         //  Mover al menú principal
-        this.scene.start('MainMenu');
+                // Load music via HTML5 audio before entering menu
+        {
+            const cfg = this.cache.json.get('music_config') as {
+                tracks?: Record<string, { file: string; volume?: number; loop?: boolean }>
+            } | undefined;
+            if (cfg && cfg.tracks) {
+                this.load.setPath('assets/audio');
+                Object.entries(cfg.tracks).forEach(([key, def]) => {
+                    if (!def?.file) return;
+                    this.load.audio(key, def.file, { asAudioTag: true });
+                });
+                this.load.once(Phaser.Loader.Events.COMPLETE, () => {
+                    this.scene.start('MainMenu');
+                });
+                this.load.start();
+                return;
+            }
+        }this.scene.start('MainMenu');
     }
 }
+
 

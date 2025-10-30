@@ -36,7 +36,7 @@ export class MainMenu extends Scene
             this.load.setPath('assets/audio');
             Object.entries(cfg.tracks).forEach(([key, def]) => {
                 if (!def?.file) return;
-                this.load.audio(key, def.file);
+                this.load.audio(key, def.file, { asAudioTag: true });
             });
             this.load.once(Phaser.Loader.Events.COMPLETE, startMusic);
             this.load.start();
@@ -137,6 +137,9 @@ export class MainMenu extends Scene
 
     // Selección movida a CharacterSelect
 }
+
+
+
 
 
 
